@@ -48,11 +48,24 @@ ACCENTS = {
     },
 }
 
+CEFR_LEVELS = ["A1", "A2", "B1", "B2", "C1", "C2"]
+LEVEL_DESCRIPTIONS = {
+    "A1": "principiante (vocabulario muy básico, frases cortas y sencillas)",
+    "A2": "elemental (frases simples, presente y pasado básico)",
+    "B1": "intermedio (puede mantener conversaciones cotidianas con cierta soltura)",
+    "B2": "intermedio-alto (entiende textos complejos y se expresa con fluidez en temas variados)",
+    "C1": "avanzado (uso flexible y eficaz en contextos sociales, académicos y profesionales)",
+    "C2": "dominio (uso prácticamente nativo, matices sutiles incluidos)",
+}
+
 DEFAULT_ACCENT = "american"
+DEFAULT_LEVEL = "B1"
+DEFAULT_GOAL = "B2"
 HISTORY_TURNS = 12
 
 conversations: dict[int, deque] = defaultdict(lambda: deque(maxlen=HISTORY_TURNS * 2))
 accent_choice: dict[int, str] = {}
+level_choice: dict[int, tuple[str, str]] = {}
 
 
 def get_accent(chat_id: int) -> dict:
@@ -60,9 +73,29 @@ def get_accent(chat_id: int) -> dict:
     return ACCENTS[key]
 
 
+def get_level(chat_id: int) -> tuple[str, str]:
+    return level_choice.get(chat_id, (DEFAULT_LEVEL, DEFAULT_GOAL))
+
+
+def level_instruction(current: str, goal: str) -> str:
+    return (
+        f"El alumno tiene un nivel actual de {current} ({LEVEL_DESCRIPTIONS[current]}) "
+        f"y quiere llegar a {goal} ({LEVEL_DESCRIPTIONS[goal]}). "
+        f"Adapta tu inglés a su nivel actual ({current}) para que pueda entenderte, "
+        f"pero introduce vocabulario, estructuras gramaticales y expresiones propias de {goal} "
+        f"para que las practique de forma gradual. "
+        "Cuando uses algo característico del nivel objetivo, márcalo brevemente para que el alumno lo note "
+        "(por ejemplo: \"Una expresión típica de C1 sería...\"). "
+        "Reta al alumno con preguntas y temas que le obliguen a estirarse hacia el nivel objetivo."
+    )
+
+
 def chat_with_gpt(chat_id: int, user_message: str) -> str:
     accent = get_accent(chat_id)
-    system_prompt = f"{BASE_PROMPT}\n\n{accent['instruction']}"
+    current, goal = get_level(chat_id)
+    system_prompt = (
+        f"{BASE_PROMPT}\n\n{accent['instruction']}\n\n{level_instruction(current, goal)}"
+    )
 
     history = conversations[chat_id]
     messages = [{"role": "system", "content": system_prompt}]
@@ -107,9 +140,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Puedes:\n"
         "• Escribirme en inglés (o español) para que conversemos y te corrija.\n"
         "• Mandarme mensajes de voz y te responderé también con voz.\n\n"
-        "*Acento:* por defecto practicamos con inglés americano 🇺🇸.\n"
-        "Cámbialo cuando quieras con /british o /american.\n\n"
+        "*Nivel:* por defecto B1 → B2. Cámbialo con `/level B2 C1` (actual y objetivo).\n"
+        "*Acento:* por defecto americano 🇺🇸. Cámbialo con /british o /american.\n\n"
         "Otros comandos:\n"
+        "• /level — ver o cambiar tu nivel y objetivo.\n"
         "• /reset — borrar la conversación y empezar de cero.\n\n"
         "¿List@ para empezar? Mándame tu primer mensaje."
     )
@@ -139,6 +173,57 @@ async def british(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def american(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await set_accent(update, context, "american")
+
+
+async def level(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.effective_chat.id
+    args = [a.upper() for a in (context.args or [])]
+
+    if not args:
+        current, goal = get_level(chat_id)
+        await update.message.reply_text(
+            f"📊 Tu nivel actual: *{current}* → objetivo: *{goal}*\n\n"
+            "Para cambiarlo, escribe:\n"
+            "`/level <nivel actual> <nivel objetivo>`\n\n"
+            "Ejemplo: `/level B2 C1`\n"
+            "Niveles disponibles: A1, A2, B1, B2, C1, C2",
+            parse_mode="Markdown",
+        )
+        return
+
+    if len(args) != 2:
+        await update.message.reply_text(
+            "Necesito dos niveles: el actual y el objetivo.\n"
+            "Ejemplo: `/level B2 C1`",
+            parse_mode="Markdown",
+        )
+        return
+
+    current, goal = args
+    if current not in CEFR_LEVELS or goal not in CEFR_LEVELS:
+        await update.message.reply_text(
+            "Esos niveles no los reconozco. Usa: A1, A2, B1, B2, C1 o C2.\n"
+            "Ejemplo: `/level B2 C1`",
+            parse_mode="Markdown",
+        )
+        return
+
+    if CEFR_LEVELS.index(goal) < CEFR_LEVELS.index(current):
+        await update.message.reply_text(
+            "El objetivo debería ser igual o superior al nivel actual. "
+            "Si quieres repasar un nivel ya alcanzado, pon ambos iguales (ej. `/level B2 B2`).",
+            parse_mode="Markdown",
+        )
+        return
+
+    level_choice[chat_id] = (current, goal)
+    conversations.pop(chat_id, None)
+    await update.message.reply_text(
+        f"✅ Genial. A partir de ahora trabajaremos desde *{current}* hacia *{goal}*.\n"
+        f"Voy a hablarte adaptándome a tu {current} y meteré poco a poco vocabulario y estructuras de {goal}.\n"
+        "He reiniciado la conversación para empezar limpio.",
+        parse_mode="Markdown",
+    )
 
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -207,6 +292,7 @@ app.add_handler(CommandHandler("start", start))
 app.add_handler(CommandHandler("reset", reset))
 app.add_handler(CommandHandler("british", british))
 app.add_handler(CommandHandler("american", american))
+app.add_handler(CommandHandler("level", level))
 app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
 app.add_handler(MessageHandler(filters.VOICE | filters.AUDIO, handle_voice))
 
