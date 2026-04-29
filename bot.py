@@ -446,7 +446,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• /british o /american — cambiar el acento.\n"
         "• /status — pedir un resumen de tu progreso ahora mismo.\n"
         "• /reset — borrar la conversación actual y empezar de cero (mantiene el historial largo).\n"
-        "• /forget_all — borrar TODO tu historial (usar con cuidado).\n\n"
+        "• /forget\\_all — borrar TODO tu historial (usar con cuidado).\n\n"
         "Cada viernes a las 20:00 (hora España) recibes un resumen automático de tu semana.\n\n"
         "¿List@ para empezar?"
     )

@@ -2,3 +2,6 @@ openai
 python-telegram-bot[job-queue]==21.0
 psycopg2-binary
 pytz
+fastapi
+uvicorn[standard]
+httpx

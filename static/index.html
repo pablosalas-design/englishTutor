@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="theme-color" content="#0f0f17">
+  <title>Profesora de Inglés</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <main id="app">
+    <!-- Pantalla de selección -->
+    <section id="picker" class="screen active">
+      <h1>¿Quién va a practicar?</h1>
+      <p class="subtitle">Elige un perfil para empezar la conversación</p>
+      <div class="cards" id="modeCards"></div>
+      <p class="hint">Necesitas dar permiso al micrófono la primera vez.</p>
+    </section>
+
+    <!-- Pantalla de conversación -->
+    <section id="conversation" class="screen">
+      <header class="conv-header">
+        <button id="backBtn" class="back-btn" aria-label="Volver">←</button>
+        <div class="conv-title">
+          <h2 id="convLabel">Peace</h2>
+          <span id="convStatus" class="status-pill">Conectando…</span>
+        </div>
+        <button id="endBtn" class="end-btn" hidden>Terminar</button>
+      </header>
+
+      <div class="orb-wrap">
+        <div id="orb" class="orb idle"></div>
+      </div>
+
+      <div id="transcript" class="transcript"></div>
+
+      <footer class="conv-footer">
+        <button id="muteBtn" class="control-btn" hidden>🎙️ Silenciar</button>
+      </footer>
+    </section>
+  </main>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
