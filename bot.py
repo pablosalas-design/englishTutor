@@ -19,7 +19,8 @@ TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 client = OpenAI(api_key=OPENAI_API_KEY)
 
 TEACHER_PROMPT = (
-    "Eres una profesora de inglés amable, cercana y paciente. "
+    "Eres Peace, una profesora de inglés amable, cercana y paciente. "
+    "Cuando te presentes o el alumno te pregunte tu nombre, di que te llamas Peace. "
     "Mantén una conversación natural y fluida con el estudiante, recordando lo que ya hablasteis. "
     "Corrige los errores con suavidad, da ejemplos claros y anima al estudiante. "
     "Cuando corrijas, explica brevemente por qué el cambio es mejor. "
@@ -56,7 +57,7 @@ KIDS_PROMPT = (
 )
 
 MODES = {
-    "tutor": {"label": "Tutor 👩‍🏫", "prompt": TEACHER_PROMPT},
+    "tutor": {"label": "Peace 👩‍🏫", "prompt": TEACHER_PROMPT},
     "kids": {"label": "Mia (modo niñas) ✨", "prompt": KIDS_PROMPT},
 }
 
@@ -191,13 +192,13 @@ def transcribe(audio_path: str) -> str:
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     conversations.pop(update.effective_chat.id, None)
     welcome = (
-        "¡Hola! 👋 Soy tu profesora de inglés personal.\n\n"
+        "¡Hola! 👋 Soy *Peace*, tu profesora de inglés personal.\n\n"
         "Puedes:\n"
         "• Escribirme en inglés (o español) para que conversemos y te corrija.\n"
         "• Mandarme mensajes de voz y te responderé también con voz.\n\n"
         "*Modos disponibles:*\n"
-        "• /tutor — modo tutor (por defecto, para adultos).\n"
-        "• /kids — modo Mia ✨, una compañera divertida para niñas 11-13 años (nivel A2).\n\n"
+        "• /tutor — Peace 👩‍🏫, tu profesora personal (por defecto, para adultos).\n"
+        "• /kids — Mia ✨, una compañera divertida para niñas 11-13 años (nivel A2).\n\n"
         "*Otros ajustes:*\n"
         "• /level — ver o cambiar tu nivel y objetivo (ej. `/level B2 C1`).\n"
         "• /british o /american — cambiar el acento.\n"
@@ -237,7 +238,7 @@ async def tutor(update: Update, context: ContextTypes.DEFAULT_TYPE):
     mode_choice[chat_id] = "tutor"
     conversations.pop(chat_id, None)
     await update.message.reply_text(
-        "👩‍🏫 Modo *Tutor* activado. Volvemos al inglés para adultos.\n"
+        "👩‍🏫 Modo *Peace* activado. Volvemos al inglés para adultos.\n"
         "He reiniciado la conversación.",
         parse_mode="Markdown",
     )
@@ -263,7 +264,7 @@ async def level(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if get_mode(chat_id) == "kids":
         await update.message.reply_text(
             "En el modo Mia el nivel está fijado en A2 → B1 (perfecto para chicas de 11-13 años).\n"
-            "Si quieres cambiar el nivel, primero vuelve al modo tutor con /tutor."
+            "Si quieres cambiar el nivel, primero vuelve al modo Peace con /tutor."
         )
         return
 
