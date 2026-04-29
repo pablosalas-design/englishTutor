@@ -1,5 +1,4 @@
 openai
-python-telegram-bot==21.0
-openai
-python-telegram-bot==21.0
-telegram
+python-telegram-bot[job-queue]==21.0
+psycopg2-binary
+pytz
