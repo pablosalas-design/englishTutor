@@ -18,7 +18,7 @@ TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 
 client = OpenAI(api_key=OPENAI_API_KEY)
 
-BASE_PROMPT = (
+TEACHER_PROMPT = (
     "Eres una profesora de inglés amable, cercana y paciente. "
     "Mantén una conversación natural y fluida con el estudiante, recordando lo que ya hablasteis. "
     "Corrige los errores con suavidad, da ejemplos claros y anima al estudiante. "
@@ -26,6 +26,39 @@ BASE_PROMPT = (
     "Mantén las respuestas concisas (2-4 frases) salvo que el alumno pida más detalle. "
     "Habla con un tono natural y conversacional, como en una clase real."
 )
+
+KIDS_PROMPT = (
+    "Eres Mia, una compañera de juegos divertida y entusiasta que ayuda a chicas pre-adolescentes "
+    "(11-13 años) con nivel A2 de inglés a aprender jugando. "
+    "Tu tono es alegre, cercano y motivador, sin ser infantilón (no son niñas pequeñas). "
+    "Usa frases CORTAS y SIMPLES en inglés (nivel A2): vocabulario básico, presente y pasado simple, "
+    "sin estructuras gramaticales complejas. "
+    "Si la alumna no entiende, repite con palabras aún más sencillas o tradúcelo. "
+    "Habla en inglés la mayor parte del tiempo, pero puedes explicar cosas difíciles en español. "
+    "Usa emojis con moderación para hacer la conversación divertida (✨🎉🌟💪😊). "
+    "\n\n"
+    "PROPÓN MINI-JUEGOS y actividades constantemente para que aprendan jugando:\n"
+    "- Adivina la palabra (das pistas en inglés y ella adivina).\n"
+    "- Cuento entre las dos (cada una aporta una frase).\n"
+    "- Veo veo en inglés (I spy with my little eye...).\n"
+    "- Preguntas tipo '¿prefieres X o Y?' (Would you rather...).\n"
+    "- Describe tu día / mascota / canción favorita.\n"
+    "- Pequeños retos: 'dime 5 animales en inglés', 'inventa una rima'.\n"
+    "Temas que les gustan: animales, mascotas, música, series, amigos, colegio, viajes, hobbies, comida.\n"
+    "\n"
+    "CORRECCIONES EN POSITIVO: nunca digas 'eso está mal'. Di cosas como "
+    "'¡casi! prueba así...', '¡muy bien intentado! Otra forma sería...', '¡super! Una manera aún mejor...'. "
+    "Celebra los aciertos con entusiasmo genuino. "
+    "\n\n"
+    "SEGURIDAD: NUNCA hables de temas no apropiados para menores (violencia, sexo, drogas, miedo, política, etc.). "
+    "Si la alumna saca un tema delicado, redirige con cariño hacia algo divertido. "
+    "Mantén siempre un ambiente seguro y positivo."
+)
+
+MODES = {
+    "teacher": {"label": "Profesora 👩‍🏫", "prompt": TEACHER_PROMPT},
+    "kids": {"label": "Mia (modo niñas) ✨", "prompt": KIDS_PROMPT},
+}
 
 ACCENTS = {
     "american": {
@@ -48,6 +81,8 @@ ACCENTS = {
     },
 }
 
+KIDS_VOICE = "shimmer"
+
 CEFR_LEVELS = ["A1", "A2", "B1", "B2", "C1", "C2"]
 LEVEL_DESCRIPTIONS = {
     "A1": "principiante (vocabulario muy básico, frases cortas y sencillas)",
@@ -59,13 +94,20 @@ LEVEL_DESCRIPTIONS = {
 }
 
 DEFAULT_ACCENT = "american"
+DEFAULT_MODE = "teacher"
 DEFAULT_LEVEL = "B1"
 DEFAULT_GOAL = "B2"
+KIDS_LEVEL = ("A2", "B1")
 HISTORY_TURNS = 12
 
 conversations: dict[int, deque] = defaultdict(lambda: deque(maxlen=HISTORY_TURNS * 2))
 accent_choice: dict[int, str] = {}
 level_choice: dict[int, tuple[str, str]] = {}
+mode_choice: dict[int, str] = {}
+
+
+def get_mode(chat_id: int) -> str:
+    return mode_choice.get(chat_id, DEFAULT_MODE)
 
 
 def get_accent(chat_id: int) -> dict:
@@ -74,7 +116,15 @@ def get_accent(chat_id: int) -> dict:
 
 
 def get_level(chat_id: int) -> tuple[str, str]:
+    if get_mode(chat_id) == "kids":
+        return KIDS_LEVEL
     return level_choice.get(chat_id, (DEFAULT_LEVEL, DEFAULT_GOAL))
+
+
+def get_voice(chat_id: int) -> str:
+    if get_mode(chat_id) == "kids":
+        return KIDS_VOICE
+    return get_accent(chat_id)["voice"]
 
 
 def level_instruction(current: str, goal: str) -> str:
@@ -90,12 +140,18 @@ def level_instruction(current: str, goal: str) -> str:
     )
 
 
-def chat_with_gpt(chat_id: int, user_message: str) -> str:
+def build_system_prompt(chat_id: int) -> str:
+    mode = get_mode(chat_id)
     accent = get_accent(chat_id)
     current, goal = get_level(chat_id)
-    system_prompt = (
-        f"{BASE_PROMPT}\n\n{accent['instruction']}\n\n{level_instruction(current, goal)}"
-    )
+    parts = [MODES[mode]["prompt"], accent["instruction"]]
+    if mode != "kids":
+        parts.append(level_instruction(current, goal))
+    return "\n\n".join(parts)
+
+
+def chat_with_gpt(chat_id: int, user_message: str) -> str:
+    system_prompt = build_system_prompt(chat_id)
 
     history = conversations[chat_id]
     messages = [{"role": "system", "content": system_prompt}]
@@ -114,10 +170,9 @@ def chat_with_gpt(chat_id: int, user_message: str) -> str:
 
 
 def text_to_speech(chat_id: int, text: str) -> bytes:
-    accent = get_accent(chat_id)
     speech = client.audio.speech.create(
         model="tts-1",
-        voice=accent["voice"],
+        voice=get_voice(chat_id),
         input=text,
         response_format="opus",
     )
@@ -140,10 +195,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Puedes:\n"
         "• Escribirme en inglés (o español) para que conversemos y te corrija.\n"
         "• Mandarme mensajes de voz y te responderé también con voz.\n\n"
-        "*Nivel:* por defecto B1 → B2. Cámbialo con `/level B2 C1` (actual y objetivo).\n"
-        "*Acento:* por defecto americano 🇺🇸. Cámbialo con /british o /american.\n\n"
-        "Otros comandos:\n"
-        "• /level — ver o cambiar tu nivel y objetivo.\n"
+        "*Modos disponibles:*\n"
+        "• /teacher — modo profesora (por defecto, para adultos).\n"
+        "• /kids — modo Mia ✨, una compañera divertida para niñas 11-13 años (nivel A2).\n\n"
+        "*Otros ajustes:*\n"
+        "• /level — ver o cambiar tu nivel y objetivo (ej. `/level B2 C1`).\n"
+        "• /british o /american — cambiar el acento.\n"
         "• /reset — borrar la conversación y empezar de cero.\n\n"
         "¿List@ para empezar? Mándame tu primer mensaje."
     )
@@ -175,8 +232,41 @@ async def american(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await set_accent(update, context, "american")
 
 
+async def teacher(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.effective_chat.id
+    mode_choice[chat_id] = "teacher"
+    conversations.pop(chat_id, None)
+    await update.message.reply_text(
+        "👩‍🏫 Modo *Profesora* activado. Volvemos al inglés para adultos.\n"
+        "He reiniciado la conversación.",
+        parse_mode="Markdown",
+    )
+
+
+async def kids(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.effective_chat.id
+    mode_choice[chat_id] = "kids"
+    conversations.pop(chat_id, None)
+    await update.message.reply_text(
+        "✨ ¡Hola! Soy *Mia*, tu compañera de inglés.\n\n"
+        "Vamos a aprender jugando: adivinanzas, cuentos, retos y mucho más.\n"
+        "Puedes hablarme o escribirme en inglés o español, lo que prefieras.\n\n"
+        "Para volver al modo profesora normal: /teacher\n\n"
+        "Ready? Tell me your name and your favorite hobby! 🌟",
+        parse_mode="Markdown",
+    )
+
+
 async def level(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
+
+    if get_mode(chat_id) == "kids":
+        await update.message.reply_text(
+            "En el modo Mia el nivel está fijado en A2 → B1 (perfecto para chicas de 11-13 años).\n"
+            "Si quieres cambiar el nivel, primero vuelve al modo profesora con /teacher."
+        )
+        return
+
     args = [a.upper() for a in (context.args or [])]
 
     if not args:
@@ -293,6 +383,8 @@ app.add_handler(CommandHandler("reset", reset))
 app.add_handler(CommandHandler("british", british))
 app.add_handler(CommandHandler("american", american))
 app.add_handler(CommandHandler("level", level))
+app.add_handler(CommandHandler("teacher", teacher))
+app.add_handler(CommandHandler("kids", kids))
 app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
 app.add_handler(MessageHandler(filters.VOICE | filters.AUDIO, handle_voice))
 
