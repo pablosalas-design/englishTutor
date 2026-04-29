@@ -1,5 +1,6 @@
 import os
 import tempfile
+from collections import defaultdict, deque
 
 from telegram import Update
 from telegram.constants import ChatAction
@@ -19,24 +20,34 @@ client = OpenAI(api_key=OPENAI_API_KEY)
 
 SYSTEM_PROMPT = (
     "Eres una profesora de inglés amable, cercana y paciente. "
+    "Mantén una conversación natural y fluida con el estudiante, recordando lo que ya hablasteis. "
     "Corrige los errores con suavidad, da ejemplos claros y anima al estudiante. "
-    "Habla con un tono natural y conversacional, como en una clase real. "
     "Cuando corrijas, explica brevemente por qué el cambio es mejor. "
-    "Mantén las respuestas concisas (2-4 frases) salvo que el alumno pida más detalle."
+    "Mantén las respuestas concisas (2-4 frases) salvo que el alumno pida más detalle. "
+    "Habla con un tono natural y conversacional, como en una clase real."
 )
 
 VOICE_NAME = "nova"
+HISTORY_TURNS = 12
+
+conversations: dict[int, deque] = defaultdict(lambda: deque(maxlen=HISTORY_TURNS * 2))
 
 
-def chat_with_gpt(user_message: str) -> str:
+def chat_with_gpt(chat_id: int, user_message: str) -> str:
+    history = conversations[chat_id]
+    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+    messages.extend(history)
+    messages.append({"role": "user", "content": user_message})
+
     response = client.chat.completions.create(
         model="gpt-4o",
-        messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": user_message},
-        ],
+        messages=messages,
     )
-    return response.choices[0].message.content
+    reply = response.choices[0].message.content
+
+    history.append({"role": "user", "content": user_message})
+    history.append({"role": "assistant", "content": reply})
+    return reply
 
 
 def text_to_speech(text: str) -> bytes:
@@ -59,14 +70,24 @@ def transcribe(audio_path: str) -> str:
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    conversations.pop(update.effective_chat.id, None)
     welcome = (
         "¡Hola! 👋 Soy tu profesora de inglés personal.\n\n"
         "Puedes:\n"
-        "• Escribirme en inglés (o español) para que te corrija y conversemos.\n"
-        "• Mandarme un mensaje de voz y te responderé también con voz, como en una clase real.\n\n"
+        "• Escribirme en inglés (o español) para que conversemos y te corrija.\n"
+        "• Mandarme mensajes de voz y te responderé también con voz, como en una clase real.\n\n"
+        "Recuerdo lo que vamos hablando, así que la conversación irá fluyendo.\n"
+        "Si quieres empezar de cero en cualquier momento, escribe /reset.\n\n"
         "¿List@ para empezar? Mándame tu primer mensaje."
     )
     await update.message.reply_text(welcome)
+
+
+async def reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    conversations.pop(update.effective_chat.id, None)
+    await update.message.reply_text(
+        "🔄 Borré nuestra conversación. Empezamos de cero — dime qué quieres practicar."
+    )
 
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -75,7 +96,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         chat_id=update.effective_chat.id, action=ChatAction.TYPING
     )
     try:
-        reply = chat_with_gpt(user_message)
+        reply = chat_with_gpt(update.effective_chat.id, user_message)
     except Exception:
         await update.message.reply_text(
             "Ups, tuve un problema procesando tu mensaje. ¿Lo intentamos de nuevo?"
@@ -108,7 +129,7 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
 
-        reply_text = chat_with_gpt(user_text)
+        reply_text = chat_with_gpt(update.effective_chat.id, user_text)
         audio_bytes = text_to_speech(reply_text)
 
         with tempfile.NamedTemporaryFile(suffix=".ogg", delete=False) as f:
@@ -132,6 +153,7 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
 app.add_handler(CommandHandler("start", start))
+app.add_handler(CommandHandler("reset", reset))
 app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
 app.add_handler(MessageHandler(filters.VOICE | filters.AUDIO, handle_voice))
 
