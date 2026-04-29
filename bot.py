@@ -18,7 +18,7 @@ TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 
 client = OpenAI(api_key=OPENAI_API_KEY)
 
-SYSTEM_PROMPT = (
+BASE_PROMPT = (
     "Eres una profesora de inglés amable, cercana y paciente. "
     "Mantén una conversación natural y fluida con el estudiante, recordando lo que ya hablasteis. "
     "Corrige los errores con suavidad, da ejemplos claros y anima al estudiante. "
@@ -27,15 +27,45 @@ SYSTEM_PROMPT = (
     "Habla con un tono natural y conversacional, como en una clase real."
 )
 
-VOICE_NAME = "nova"
+ACCENTS = {
+    "american": {
+        "voice": "nova",
+        "label": "americano 🇺🇸",
+        "instruction": (
+            "Usa SIEMPRE inglés americano: vocabulario (elevator, apartment, truck, vacation), "
+            "ortografía (color, organize, traveling, center) y expresiones idiomáticas típicas de EE. UU. "
+            "Si el alumno usa formas británicas, sugiérele suavemente la versión americana."
+        ),
+    },
+    "british": {
+        "voice": "fable",
+        "label": "británico 🇬🇧",
+        "instruction": (
+            "Usa SIEMPRE inglés británico: vocabulario (lift, flat, lorry, holiday), "
+            "ortografía (colour, organise, travelling, centre) y expresiones idiomáticas típicas del Reino Unido. "
+            "Si el alumno usa formas americanas, sugiérele suavemente la versión británica."
+        ),
+    },
+}
+
+DEFAULT_ACCENT = "american"
 HISTORY_TURNS = 12
 
 conversations: dict[int, deque] = defaultdict(lambda: deque(maxlen=HISTORY_TURNS * 2))
+accent_choice: dict[int, str] = {}
+
+
+def get_accent(chat_id: int) -> dict:
+    key = accent_choice.get(chat_id, DEFAULT_ACCENT)
+    return ACCENTS[key]
 
 
 def chat_with_gpt(chat_id: int, user_message: str) -> str:
+    accent = get_accent(chat_id)
+    system_prompt = f"{BASE_PROMPT}\n\n{accent['instruction']}"
+
     history = conversations[chat_id]
-    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+    messages = [{"role": "system", "content": system_prompt}]
     messages.extend(history)
     messages.append({"role": "user", "content": user_message})
 
@@ -50,10 +80,11 @@ def chat_with_gpt(chat_id: int, user_message: str) -> str:
     return reply
 
 
-def text_to_speech(text: str) -> bytes:
+def text_to_speech(chat_id: int, text: str) -> bytes:
+    accent = get_accent(chat_id)
     speech = client.audio.speech.create(
         model="tts-1",
-        voice=VOICE_NAME,
+        voice=accent["voice"],
         input=text,
         response_format="opus",
     )
@@ -75,12 +106,14 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "¡Hola! 👋 Soy tu profesora de inglés personal.\n\n"
         "Puedes:\n"
         "• Escribirme en inglés (o español) para que conversemos y te corrija.\n"
-        "• Mandarme mensajes de voz y te responderé también con voz, como en una clase real.\n\n"
-        "Recuerdo lo que vamos hablando, así que la conversación irá fluyendo.\n"
-        "Si quieres empezar de cero en cualquier momento, escribe /reset.\n\n"
+        "• Mandarme mensajes de voz y te responderé también con voz.\n\n"
+        "*Acento:* por defecto practicamos con inglés americano 🇺🇸.\n"
+        "Cámbialo cuando quieras con /british o /american.\n\n"
+        "Otros comandos:\n"
+        "• /reset — borrar la conversación y empezar de cero.\n\n"
         "¿List@ para empezar? Mándame tu primer mensaje."
     )
-    await update.message.reply_text(welcome)
+    await update.message.reply_text(welcome, parse_mode="Markdown")
 
 
 async def reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -88,6 +121,24 @@ async def reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "🔄 Borré nuestra conversación. Empezamos de cero — dime qué quieres practicar."
     )
+
+
+async def set_accent(update: Update, context: ContextTypes.DEFAULT_TYPE, key: str):
+    accent_choice[update.effective_chat.id] = key
+    conversations.pop(update.effective_chat.id, None)
+    label = ACCENTS[key]["label"]
+    await update.message.reply_text(
+        f"✅ A partir de ahora practicaremos con inglés {label}.\n"
+        "He reiniciado la conversación para empezar limpio."
+    )
+
+
+async def british(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await set_accent(update, context, "british")
+
+
+async def american(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await set_accent(update, context, "american")
 
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -130,7 +181,7 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         reply_text = chat_with_gpt(update.effective_chat.id, user_text)
-        audio_bytes = text_to_speech(reply_text)
+        audio_bytes = text_to_speech(update.effective_chat.id, reply_text)
 
         with tempfile.NamedTemporaryFile(suffix=".ogg", delete=False) as f:
             output_path = f.name
@@ -154,6 +205,8 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
 app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
 app.add_handler(CommandHandler("start", start))
 app.add_handler(CommandHandler("reset", reset))
+app.add_handler(CommandHandler("british", british))
+app.add_handler(CommandHandler("american", american))
 app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
 app.add_handler(MessageHandler(filters.VOICE | filters.AUDIO, handle_voice))
 
