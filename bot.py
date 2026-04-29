@@ -56,7 +56,7 @@ KIDS_PROMPT = (
 )
 
 MODES = {
-    "teacher": {"label": "Profesora 👩‍🏫", "prompt": TEACHER_PROMPT},
+    "tutor": {"label": "Tutor 👩‍🏫", "prompt": TEACHER_PROMPT},
     "kids": {"label": "Mia (modo niñas) ✨", "prompt": KIDS_PROMPT},
 }
 
@@ -94,7 +94,7 @@ LEVEL_DESCRIPTIONS = {
 }
 
 DEFAULT_ACCENT = "american"
-DEFAULT_MODE = "teacher"
+DEFAULT_MODE = "tutor"
 DEFAULT_LEVEL = "B1"
 DEFAULT_GOAL = "B2"
 KIDS_LEVEL = ("A2", "B1")
@@ -196,7 +196,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• Escribirme en inglés (o español) para que conversemos y te corrija.\n"
         "• Mandarme mensajes de voz y te responderé también con voz.\n\n"
         "*Modos disponibles:*\n"
-        "• /teacher — modo profesora (por defecto, para adultos).\n"
+        "• /tutor — modo tutor (por defecto, para adultos).\n"
         "• /kids — modo Mia ✨, una compañera divertida para niñas 11-13 años (nivel A2).\n\n"
         "*Otros ajustes:*\n"
         "• /level — ver o cambiar tu nivel y objetivo (ej. `/level B2 C1`).\n"
@@ -232,12 +232,12 @@ async def american(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await set_accent(update, context, "american")
 
 
-async def teacher(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def tutor(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
-    mode_choice[chat_id] = "teacher"
+    mode_choice[chat_id] = "tutor"
     conversations.pop(chat_id, None)
     await update.message.reply_text(
-        "👩‍🏫 Modo *Profesora* activado. Volvemos al inglés para adultos.\n"
+        "👩‍🏫 Modo *Tutor* activado. Volvemos al inglés para adultos.\n"
         "He reiniciado la conversación.",
         parse_mode="Markdown",
     )
@@ -251,7 +251,7 @@ async def kids(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "✨ ¡Hola! Soy *Mia*, tu compañera de inglés.\n\n"
         "Vamos a aprender jugando: adivinanzas, cuentos, retos y mucho más.\n"
         "Puedes hablarme o escribirme en inglés o español, lo que prefieras.\n\n"
-        "Para volver al modo profesora normal: /teacher\n\n"
+        "Para volver al modo tutor normal: /tutor\n\n"
         "Ready? Tell me your name and your favorite hobby! 🌟",
         parse_mode="Markdown",
     )
@@ -263,7 +263,7 @@ async def level(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if get_mode(chat_id) == "kids":
         await update.message.reply_text(
             "En el modo Mia el nivel está fijado en A2 → B1 (perfecto para chicas de 11-13 años).\n"
-            "Si quieres cambiar el nivel, primero vuelve al modo profesora con /teacher."
+            "Si quieres cambiar el nivel, primero vuelve al modo tutor con /tutor."
         )
         return
 
@@ -383,7 +383,7 @@ app.add_handler(CommandHandler("reset", reset))
 app.add_handler(CommandHandler("british", british))
 app.add_handler(CommandHandler("american", american))
 app.add_handler(CommandHandler("level", level))
-app.add_handler(CommandHandler("teacher", teacher))
+app.add_handler(CommandHandler("tutor", tutor))
 app.add_handler(CommandHandler("kids", kids))
 app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
 app.add_handler(MessageHandler(filters.VOICE | filters.AUDIO, handle_voice))
