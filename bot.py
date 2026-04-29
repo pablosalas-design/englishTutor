@@ -22,6 +22,22 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 DATABASE_URL = os.getenv("DATABASE_URL")
 
+_missing = [
+    name for name, value in (
+        ("OPENAI_API_KEY", OPENAI_API_KEY),
+        ("TELEGRAM_TOKEN", TELEGRAM_TOKEN),
+        ("DATABASE_URL", DATABASE_URL),
+    ) if not value
+]
+if _missing:
+    raise SystemExit(
+        "ERROR: Missing required environment variables: "
+        + ", ".join(_missing)
+        + ". On Railway, link the Postgres database to this service "
+        "by adding a variable reference (e.g. DATABASE_URL = ${{Postgres.DATABASE_URL}}) "
+        "and re-deploy."
+    )
+
 client = OpenAI(api_key=OPENAI_API_KEY)
 SPAIN_TZ = pytz.timezone("Europe/Madrid")
 
