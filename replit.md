@@ -38,6 +38,27 @@ See the `pnpm-workspace` skill for workspace structure, TypeScript setup, and pa
 
 There is no "wife" persona. Do not assume one.
 
+### Companion web app (`webapp.py` + `static/`)
+
+FastAPI app served on port 5000. PWA installable. Voice tutoring via OpenAI Realtime API (WebRTC). Shares the Postgres DB with the Telegram bot.
+
+Flow: persona picker → activity picker (`Hablar` / `Gramática`) → voice screen or grammar screen.
+
+#### Grammar feature
+
+- `GET /api/grammar/today?mode={peace|lucia|leyre}` returns today's lesson (cached per UTC day per `chat_id`). If none exists, calls GPT-4o (JSON mode) using:
+  - persona level (`peace`=B2-C1 / kids=A2-B1) and explanation language (`peace`=en / kids=es)
+  - the user's last 60 messages from the shared `messages` table (to detect weak areas)
+  - the last 20 lesson topics for that profile (to avoid repetition)
+- Returns: `{topic, title, explanation, examples[{en,translation}], exercises[3 mc + 2 fill]}`. The generator validates the JSON shape and retries once if invalid.
+- `POST /api/grammar/attempt` re-evaluates correctness on the server (does not trust the client's verdict), checks that the lesson belongs to the caller's profile, and records the attempt in `grammar_attempts`.
+- DB tables: `grammar_lessons` (UNIQUE `chat_id`+`lesson_date`) and `grammar_attempts`.
+- `web_chat_id` mapping: `peace=-1001`, `lucia=-1002`, `leyre=-1003`.
+
+#### Static assets cache
+
+Bumped query string `?v=11` on `app.js` and `styles.css`; service worker cache is `tutor-shell-v8`. After deploying, do a hard refresh (or close/reopen the PWA) so the new SW activates.
+
 ### Pending improvements (roadmap)
 
 1. **Conversation memory** — let the bot remember recent messages so it can give more coherent corrections and contextual replies.

@@ -13,6 +13,9 @@ const state = {
   pendingUserText: "",
   pendingAssistantText: "",
   loadedAvatarUrl: null,
+  lesson: null,
+  exerciseIdx: 0,
+  correctCount: 0,
 };
 
 const els = {
@@ -29,6 +32,19 @@ const els = {
   endBtn: document.getElementById("endBtn"),
   muteBtn: document.getElementById("muteBtn"),
   app: document.getElementById("app"),
+  // Sub-picker
+  subpicker: document.getElementById("subpicker"),
+  subLabel: document.getElementById("subLabel"),
+  subSubtitle: document.getElementById("subSubtitle"),
+  subBackBtn: document.getElementById("subBackBtn"),
+  actSpeak: document.getElementById("actSpeak"),
+  actGrammar: document.getElementById("actGrammar"),
+  // Grammar
+  grammar: document.getElementById("grammar"),
+  grammarBody: document.getElementById("grammarBody"),
+  gramLabel: document.getElementById("gramLabel"),
+  gramStatus: document.getElementById("gramStatus"),
+  gramBackBtn: document.getElementById("gramBackBtn"),
 };
 
 let avatar = null;
@@ -59,7 +75,7 @@ function renderPicker() {
       </div>
       <div class="arrow">→</div>
     `;
-    card.addEventListener("click", () => startConversation(m));
+    card.addEventListener("click", () => openSubpicker(m));
     els.modeCards.appendChild(card);
   }
 }
@@ -74,9 +90,35 @@ function initials(label) {
     .toUpperCase();
 }
 
+// ---------- Sub-picker (Hablar / Gramática) ----------
+
+function openSubpicker(mode) {
+  state.mode = mode;
+  els.subLabel.textContent = mode.label;
+  els.app.style.setProperty("--mc-color", mode.color);
+  document.documentElement.style.setProperty("--mc-color", mode.color);
+  showScreen("subpicker");
+}
+
+els.subBackBtn.addEventListener("click", () => showScreen("picker"));
+
+let activityClickGuard = false;
+function guardClick(fn) {
+  if (activityClickGuard) return;
+  activityClickGuard = true;
+  setTimeout(() => { activityClickGuard = false; }, 1500);
+  fn();
+}
+els.actSpeak.addEventListener("click", () => guardClick(() => {
+  if (state.mode) startVoice(state.mode);
+}));
+els.actGrammar.addEventListener("click", () => guardClick(() => {
+  if (state.mode) startGrammar(state.mode);
+}));
+
 // ---------- Conversation lifecycle ----------
 
-async function startConversation(mode) {
+async function startVoice(mode) {
   state.mode = mode;
   els.convLabel.textContent = mode.label;
   els.convStatus.textContent = "Conectando…";
@@ -208,7 +250,7 @@ function endConversation() {
   els.muteBtn.textContent = "🎙️ Silenciar";
   setOrb("idle");
   if (avatar) avatar.detachAudio();
-  showScreen("picker");
+  showScreen(state.mode ? "subpicker" : "picker");
 }
 
 // ---------- Realtime events ----------
@@ -313,5 +355,212 @@ els.muteBtn.addEventListener("click", () => {
 
 // Al cerrar pestaña, liberar recursos
 window.addEventListener("pagehide", endConversation);
+
+// ---------- Grammar ----------
+
+els.gramBackBtn.addEventListener("click", () => showScreen("subpicker"));
+
+async function startGrammar(mode) {
+  els.gramLabel.textContent = mode.label;
+  els.gramStatus.textContent = "Cargando…";
+  els.grammarBody.innerHTML = '<div class="grammar-loading">Generando tu lección de hoy…</div>';
+  showScreen("grammar");
+
+  state.lesson = null;
+  state.exerciseIdx = 0;
+  state.correctCount = 0;
+
+  try {
+    const r = await fetch(`/api/grammar/today?mode=${encodeURIComponent(mode.id)}`);
+    if (!r.ok) {
+      const txt = await r.text();
+      throw new Error(`HTTP ${r.status}: ${txt.slice(0, 200)}`);
+    }
+    const lesson = await r.json();
+    state.lesson = lesson;
+    els.gramStatus.textContent = lesson.level || "";
+    renderLessonIntro();
+  } catch (err) {
+    console.error("[grammar] load failed", err);
+    els.gramStatus.textContent = "Error";
+    els.grammarBody.innerHTML = `
+      <div class="grammar-loading">
+        No se pudo cargar la lección.<br><br>
+        <button class="gram-cta secondary" id="retryBtn">Reintentar</button>
+      </div>`;
+    document.getElementById("retryBtn").addEventListener("click", () => startGrammar(mode));
+  }
+}
+
+function renderLessonIntro() {
+  const l = state.lesson;
+  els.grammarBody.innerHTML = `
+    <div class="gram-meta">${l.level} · ${l.exercises.length} ejercicios</div>
+    <h3 class="gram-title">${escapeHtml(l.title)}</h3>
+    <div class="gram-explanation">${escapeHtml(l.explanation)}</div>
+    <div class="gram-section-title">Examples</div>
+    <div class="gram-examples">
+      ${l.examples.map(ex => `
+        <div class="gram-example">
+          <div class="en">${escapeHtml(ex.en)}</div>
+          <div class="es">${escapeHtml(ex.translation || "")}</div>
+        </div>
+      `).join("")}
+    </div>
+    <button class="gram-cta" id="startExBtn">Empezar ejercicios →</button>
+  `;
+  els.grammarBody.scrollTop = 0;
+  document.getElementById("startExBtn").addEventListener("click", () => {
+    state.exerciseIdx = 0;
+    state.correctCount = 0;
+    renderExercise();
+  });
+}
+
+function renderExercise() {
+  const l = state.lesson;
+  const idx = state.exerciseIdx;
+  if (idx >= l.exercises.length) {
+    renderResult();
+    return;
+  }
+  const ex = l.exercises[idx];
+  const total = l.exercises.length;
+
+  if (ex.type === "mc") {
+    els.grammarBody.innerHTML = `
+      <div class="gram-progress">Pregunta ${idx + 1} de ${total}</div>
+      <div class="gram-question">
+        <div class="q">${escapeHtml(ex.question)}</div>
+        <div class="gram-options" id="opts">
+          ${ex.options.map((opt, i) => `
+            <button class="gram-option" data-i="${i}">${escapeHtml(opt)}</button>
+          `).join("")}
+        </div>
+        <div id="feedback"></div>
+      </div>
+    `;
+    const opts = els.grammarBody.querySelectorAll(".gram-option");
+    opts.forEach(btn => {
+      btn.addEventListener("click", () => handleMcAnswer(btn, ex, opts));
+    });
+  } else {
+    // fill
+    els.grammarBody.innerHTML = `
+      <div class="gram-progress">Pregunta ${idx + 1} de ${total}</div>
+      <div class="gram-question">
+        <div class="q">${escapeHtml(ex.question)}</div>
+        <input class="gram-fill-input" id="fillInput" type="text" autocomplete="off" autocapitalize="none" placeholder="Escribe tu respuesta…">
+        <div id="feedback"></div>
+        <button class="gram-cta" id="checkBtn" style="margin-top: 0.8rem;">Comprobar</button>
+      </div>
+    `;
+    const input = document.getElementById("fillInput");
+    const checkBtn = document.getElementById("checkBtn");
+    input.focus();
+    const submit = () => handleFillAnswer(input, ex, checkBtn);
+    checkBtn.addEventListener("click", submit);
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") { e.preventDefault(); submit(); }
+    });
+  }
+  els.grammarBody.scrollTop = 0;
+}
+
+function handleMcAnswer(btn, ex, allBtns) {
+  const chosen = btn.textContent;
+  const correct = ex.correct;
+  const isCorrect = chosen === correct;
+  allBtns.forEach(b => { b.disabled = true; });
+  if (isCorrect) {
+    btn.classList.add("correct");
+  } else {
+    btn.classList.add("wrong");
+    allBtns.forEach(b => {
+      if (b.textContent === correct) b.classList.add("correct");
+    });
+  }
+  if (isCorrect) state.correctCount++;
+  showFeedbackAndNext(isCorrect, ex, chosen);
+}
+
+function handleFillAnswer(input, ex, checkBtn) {
+  const raw = (input.value || "").trim().toLowerCase().replace(/[.,!?;:]+$/, "");
+  if (!raw) return;
+  const accepted = [ex.correct.toLowerCase(), ...((ex.accept || []).map(a => a.toLowerCase()))];
+  const isCorrect = accepted.includes(raw);
+  input.disabled = true;
+  checkBtn.disabled = true;
+  input.classList.add(isCorrect ? "correct" : "wrong");
+  if (isCorrect) state.correctCount++;
+  showFeedbackAndNext(isCorrect, ex, raw);
+}
+
+function showFeedbackAndNext(isCorrect, ex, userAnswer) {
+  const fb = document.getElementById("feedback");
+  fb.className = `gram-feedback ${isCorrect ? "correct" : "wrong"}`;
+  const icon = isCorrect ? "✓" : "✗";
+  const head = isCorrect ? "Correct" : "Not quite";
+  const answerLine = isCorrect ? "" : `<span class="answer">Correct answer: <strong>${escapeHtml(ex.correct)}</strong></span>`;
+  fb.innerHTML = `<strong>${icon} ${head}.</strong> ${escapeHtml(ex.explanation || "")}${answerLine}`;
+
+  // Save attempt (fire-and-forget). El servidor revalida is_correct internamente.
+  fetch(`/api/grammar/attempt?mode=${encodeURIComponent(state.mode.id)}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      lesson_id: state.lesson.lesson_id,
+      exercise_index: state.exerciseIdx,
+      user_answer: String(userAnswer || ""),
+    }),
+  }).catch(err => console.warn("[grammar] attempt save failed", err));
+
+  // Next button
+  const next = document.createElement("button");
+  next.className = "gram-cta";
+  next.style.marginTop = "0.8rem";
+  next.textContent = state.exerciseIdx + 1 >= state.lesson.exercises.length ? "Ver resultado →" : "Siguiente →";
+  next.addEventListener("click", () => {
+    state.exerciseIdx++;
+    renderExercise();
+  });
+  fb.parentElement.appendChild(next);
+  next.focus();
+}
+
+function renderResult() {
+  const total = state.lesson.exercises.length;
+  const score = state.correctCount;
+  const pct = Math.round((score / total) * 100);
+  let label = "Sigue practicando, mañana otra";
+  if (pct >= 80) label = "¡Genial! Lo dominas";
+  else if (pct >= 60) label = "Buen trabajo";
+  else if (pct >= 40) label = "Vas por buen camino";
+
+  els.grammarBody.innerHTML = `
+    <div class="gram-result">
+      <div class="score">${score} / ${total}</div>
+      <div class="label">${label}</div>
+      <div class="actions">
+        <button class="gram-cta" id="speakBtn">Hablar de esto con ${escapeHtml(state.mode.label)}</button>
+        <button class="gram-cta secondary" id="reviewBtn">Volver a ver la lección</button>
+        <button class="gram-cta secondary" id="doneBtn">Terminar</button>
+      </div>
+    </div>
+  `;
+  document.getElementById("speakBtn").addEventListener("click", () => startVoice(state.mode));
+  document.getElementById("reviewBtn").addEventListener("click", () => renderLessonIntro());
+  document.getElementById("doneBtn").addEventListener("click", () => showScreen("subpicker"));
+  els.grammarBody.scrollTop = 0;
+}
+
+function escapeHtml(s) {
+  return String(s ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
 
 boot();

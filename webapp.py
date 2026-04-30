@@ -4,9 +4,11 @@ Sirve una página web sencilla donde el alumno habla con la profesora
 en tiempo real (WebRTC + OpenAI Realtime API). Comparte la base de datos
 con el bot de Telegram para mantener memoria larga y resúmenes semanales.
 """
+import json
 import os
+import re
 from contextlib import contextmanager
-from datetime import datetime
+from datetime import date, datetime, timezone
 
 import httpx
 import psycopg2
@@ -14,6 +16,7 @@ import psycopg2.extras
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+from openai import OpenAI
 from pydantic import BaseModel
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
@@ -82,24 +85,33 @@ MODES = {
         "is_kid": False,
         "color": "#5B7FFF",
         "avatar_url": AVATAR_PEACE_URL,
+        "level": "B2-C1",
+        "explanation_lang": "en",  # explicaciones de gramática en inglés
+        "student_name": "Pablo",
     },
     "lucia": {
         "label": "Mia para Lucía",
-        "subtitle": "11-13 años · A2",
+        "subtitle": "11-13 años · A2-B1",
         "prompt": kid_prompt("Lucía"),
         "voice": "sage",
         "is_kid": True,
         "color": "#FF6FA0",
         "avatar_url": AVATAR_MIA_URL,
+        "level": "A2-B1",
+        "explanation_lang": "es",  # explicaciones en español
+        "student_name": "Lucía",
     },
     "leyre": {
         "label": "Mia para Leyre",
-        "subtitle": "11-13 años · A2",
+        "subtitle": "11-13 años · A2-B1",
         "prompt": kid_prompt("Leyre"),
         "voice": "sage",
         "is_kid": True,
         "color": "#9B6FFF",
         "avatar_url": AVATAR_MIA_URL,
+        "level": "A2-B1",
+        "explanation_lang": "es",
+        "student_name": "Leyre",
     },
 }
 
@@ -116,6 +128,41 @@ def db_cursor():
         conn.commit()
     finally:
         conn.close()
+
+
+def init_db_grammar():
+    """Crea las tablas de la pestaña Gramática si no existen."""
+    with db_cursor() as cur:
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS grammar_lessons (
+              id SERIAL PRIMARY KEY,
+              chat_id BIGINT NOT NULL,
+              mode TEXT NOT NULL,
+              lesson_date DATE NOT NULL,
+              topic TEXT NOT NULL,
+              level TEXT NOT NULL,
+              lang TEXT NOT NULL,
+              title TEXT NOT NULL,
+              explanation TEXT NOT NULL,
+              examples JSONB NOT NULL,
+              exercises JSONB NOT NULL,
+              created_at TIMESTAMPTZ DEFAULT NOW(),
+              UNIQUE(chat_id, lesson_date)
+            );
+            CREATE INDEX IF NOT EXISTS idx_grammar_lessons_chat_date
+              ON grammar_lessons(chat_id, lesson_date DESC);
+            CREATE TABLE IF NOT EXISTS grammar_attempts (
+              id SERIAL PRIMARY KEY,
+              chat_id BIGINT NOT NULL,
+              lesson_id INTEGER NOT NULL REFERENCES grammar_lessons(id) ON DELETE CASCADE,
+              exercise_index INTEGER NOT NULL,
+              user_answer TEXT,
+              is_correct BOOLEAN NOT NULL,
+              created_at TIMESTAMPTZ DEFAULT NOW()
+            );
+            CREATE INDEX IF NOT EXISTS idx_grammar_attempts_lesson
+              ON grammar_attempts(lesson_id);
+        """)
 
 
 def web_chat_id(mode: str) -> int:
@@ -222,10 +269,285 @@ def build_instructions(mode: str) -> str:
 
 
 # ----------------------------------------------------------------------------
+# Grammar (lección diaria + ejercicios generados por IA)
+# ----------------------------------------------------------------------------
+
+openai_client = OpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
+
+
+def fetch_user_lines(chat_id: int, limit: int = 60) -> list[str]:
+    """Últimas frases dichas por el alumno (rol=user) en orden cronológico."""
+    with db_cursor() as cur:
+        cur.execute(
+            """
+            SELECT content FROM messages
+            WHERE chat_id = %s AND role = 'user' AND content IS NOT NULL
+            ORDER BY created_at DESC
+            LIMIT %s
+            """,
+            (chat_id, limit),
+        )
+        rows = cur.fetchall()
+    return list(reversed([r["content"][:300] for r in rows if r["content"]]))
+
+
+def fetch_past_lesson_topics(chat_id: int, limit: int = 20) -> list[str]:
+    """Temas ya cubiertos para no repetir."""
+    with db_cursor() as cur:
+        cur.execute(
+            """
+            SELECT topic FROM grammar_lessons
+            WHERE chat_id = %s
+            ORDER BY lesson_date DESC
+            LIMIT %s
+            """,
+            (chat_id, limit),
+        )
+        return [r["topic"] for r in cur.fetchall()]
+
+
+def fetch_today_lesson(chat_id: int, today: date) -> dict | None:
+    with db_cursor() as cur:
+        cur.execute(
+            """
+            SELECT id, topic, level, lang, title, explanation, examples, exercises
+            FROM grammar_lessons
+            WHERE chat_id = %s AND lesson_date = %s
+            """,
+            (chat_id, today),
+        )
+        row = cur.fetchone()
+    return dict(row) if row else None
+
+
+def insert_lesson(chat_id: int, mode: str, today: date, lesson: dict) -> int:
+    with db_cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO grammar_lessons
+              (chat_id, mode, lesson_date, topic, level, lang, title, explanation, examples, exercises)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT (chat_id, lesson_date) DO UPDATE SET
+              topic = EXCLUDED.topic,
+              title = EXCLUDED.title,
+              explanation = EXCLUDED.explanation,
+              examples = EXCLUDED.examples,
+              exercises = EXCLUDED.exercises
+            RETURNING id
+            """,
+            (
+                chat_id,
+                mode,
+                today,
+                lesson["topic"],
+                lesson["level"],
+                lesson["lang"],
+                lesson["title"],
+                lesson["explanation"],
+                json.dumps(lesson["examples"]),
+                json.dumps(lesson["exercises"]),
+            ),
+        )
+        return cur.fetchone()["id"]
+
+
+GRAMMAR_SYSTEM_PROMPT = """You are an expert English grammar coach.
+You design ONE short daily grammar lesson personalised to a single student.
+
+Inputs you will receive:
+- student_name, level (CEFR range)
+- explanation_lang ("es" or "en"): the language used for the lesson explanation and feedback
+- native_lang: always "es" (the student's mother tongue)
+- recent_user_lines: things the student has recently said in conversation (may contain mistakes)
+- past_topics: grammar topics already covered (avoid repeating these)
+- tone: "warm" (kid) or "neutral" (adult)
+
+Your job:
+1. Pick ONE grammar topic appropriate for the student's level AND that the
+   recent_user_lines suggest is weak (recurring mistakes, avoidance, awkward phrasing).
+   If the lines are empty or no clear mistake, pick a useful topic for the level that is NOT in past_topics.
+2. Produce a focused, motivating mini-lesson.
+
+Output STRICT JSON with this schema (no markdown, no extra text):
+{
+  "topic": "<short slug, e.g. 'present_perfect_vs_past_simple'>",
+  "title": "<friendly lesson title in explanation_lang>",
+  "explanation": "<2-4 short paragraphs in explanation_lang. Plain text, no markdown.
+                  Cover: when to use it, the rule, common mistakes (ideally referencing
+                  the student's own mistakes if visible), and a quick tip.>",
+  "examples": [
+    {"en": "<English sentence>", "translation": "<Spanish translation, native_lang>"},
+    ... 3 examples total
+  ],
+  "exercises": [
+    // EXACTLY 5 exercises in this order: 3 multiple choice, then 2 fill-in-the-blank.
+    {
+      "type": "mc",
+      "question": "<English sentence with ___ where the answer goes, OR a question>",
+      "options": ["<a>", "<b>", "<c>", "<d>"],
+      "correct": "<one of the options, EXACT text>",
+      "explanation": "<brief feedback in explanation_lang>"
+    },
+    ... two more "mc" ...
+    {
+      "type": "fill",
+      "question": "<English sentence with ___ where the answer goes>",
+      "correct": "<the exact word(s) that fill the blank, lowercase, no punctuation>",
+      "accept": ["<optional alternative spellings or contractions, lowercase>"],
+      "explanation": "<brief feedback in explanation_lang>"
+    },
+    ... one more "fill" ...
+  ]
+}
+
+Rules:
+- Exercises and example sentences are in ENGLISH.
+- Example translations always go to native_lang (Spanish).
+- Lesson explanation and exercise feedback follow explanation_lang.
+- Difficulty must match the level.
+- Each "fill" answer must be 1-3 words, unambiguous, and lowercase.
+- Never include the answer inside the question.
+"""
+
+
+def utc_today() -> date:
+    return datetime.now(timezone.utc).date()
+
+
+def validate_lesson_payload(data: dict) -> tuple[bool, str]:
+    """Comprueba que la lección generada cumple el contrato. Devuelve (ok, error)."""
+    required_top = {"topic", "title", "explanation", "examples", "exercises"}
+    if not isinstance(data, dict) or not required_top.issubset(data):
+        return False, f"missing top-level keys: {required_top - set(data) if isinstance(data, dict) else 'not a dict'}"
+    if not (isinstance(data["topic"], str) and data["topic"].strip()):
+        return False, "topic empty"
+    if not (isinstance(data["title"], str) and data["title"].strip()):
+        return False, "title empty"
+    if not (isinstance(data["explanation"], str) and len(data["explanation"]) >= 30):
+        return False, "explanation too short"
+    examples = data.get("examples")
+    if not (isinstance(examples, list) and len(examples) >= 1):
+        return False, "examples missing"
+    for ex in examples:
+        if not isinstance(ex, dict) or "en" not in ex or "translation" not in ex:
+            return False, "example missing en/translation"
+    exs = data.get("exercises")
+    if not (isinstance(exs, list) and len(exs) == 5):
+        return False, f"need exactly 5 exercises, got {len(exs) if isinstance(exs, list) else 'n/a'}"
+    types = [e.get("type") for e in exs]
+    if types != ["mc", "mc", "mc", "fill", "fill"]:
+        return False, f"exercise order wrong: {types}"
+    for i, e in enumerate(exs):
+        if "question" not in e or not isinstance(e["question"], str):
+            return False, f"ex {i}: question missing"
+        if "correct" not in e or not isinstance(e["correct"], str) or not e["correct"]:
+            return False, f"ex {i}: correct missing"
+        if "explanation" not in e or not isinstance(e["explanation"], str):
+            return False, f"ex {i}: explanation missing"
+        if e["type"] == "mc":
+            opts = e.get("options")
+            if not (isinstance(opts, list) and len(opts) >= 2):
+                return False, f"ex {i}: options missing"
+            if e["correct"] not in opts:
+                return False, f"ex {i}: correct '{e['correct']}' not in options"
+        else:  # fill
+            if not isinstance(e.get("accept", []), list):
+                return False, f"ex {i}: accept not a list"
+    return True, ""
+
+
+def generate_lesson(chat_id: int, mode: str) -> dict:
+    if not openai_client:
+        raise HTTPException(status_code=500, detail="Falta OPENAI_API_KEY")
+
+    cfg = MODES[mode]
+    user_lines = fetch_user_lines(chat_id, limit=60)
+    past_topics = fetch_past_lesson_topics(chat_id, limit=20)
+    tone = "warm" if cfg["is_kid"] else "neutral"
+
+    user_payload = {
+        "student_name": cfg["student_name"],
+        "level": cfg["level"],
+        "explanation_lang": cfg["explanation_lang"],
+        "native_lang": "es",
+        "tone": tone,
+        "recent_user_lines": user_lines,
+        "past_topics": past_topics,
+    }
+
+    last_error = ""
+    for attempt in range(2):  # 1 intento + 1 reintento si validación falla
+        completion = openai_client.chat.completions.create(
+            model="gpt-4o",
+            response_format={"type": "json_object"},
+            temperature=0.7 if attempt == 0 else 0.4,
+            messages=[
+                {"role": "system", "content": GRAMMAR_SYSTEM_PROMPT},
+                {"role": "user", "content": json.dumps(user_payload, ensure_ascii=False)},
+            ],
+        )
+        try:
+            data = json.loads(completion.choices[0].message.content)
+        except Exception as e:
+            last_error = f"JSON parse: {e}"
+            continue
+
+        ok, err = validate_lesson_payload(data)
+        if ok:
+            data["level"] = cfg["level"]
+            data["lang"] = cfg["explanation_lang"]
+            # Normalizar respuestas fill para comparación robusta
+            for e in data["exercises"]:
+                if e["type"] == "fill":
+                    e["correct"] = e["correct"].strip().lower()
+                    e["accept"] = [a.strip().lower() for a in e.get("accept", []) if isinstance(a, str)]
+            return data
+        last_error = err
+
+    raise HTTPException(status_code=502, detail=f"Generated lesson invalid: {last_error}")
+
+
+def get_or_create_today_lesson(chat_id: int, mode: str) -> dict:
+    today = utc_today()
+    existing = fetch_today_lesson(chat_id, today)
+    if existing:
+        existing["lesson_id"] = existing.pop("id")
+        return existing
+
+    lesson = generate_lesson(chat_id, mode)
+    lesson_id = insert_lesson(chat_id, mode, today, lesson)
+    lesson["lesson_id"] = lesson_id
+    return lesson
+
+
+def evaluate_answer(exercise: dict, user_answer: str | None) -> bool:
+    """Comprueba en el servidor si la respuesta del alumno es correcta."""
+    if user_answer is None:
+        return False
+    raw = str(user_answer).strip()
+    if exercise.get("type") == "mc":
+        return raw == exercise.get("correct")
+    # fill: comparación case-insensitive, sin puntuación final
+    norm = re.sub(r"[.,!?;:]+$", "", raw.strip().lower())
+    accepted = [exercise.get("correct", "").strip().lower()]
+    accepted += [str(a).strip().lower() for a in exercise.get("accept", [])]
+    return norm in accepted
+
+
+# ----------------------------------------------------------------------------
 # FastAPI app
 # ----------------------------------------------------------------------------
 
 app = FastAPI(title="English Tutor Voice")
+
+
+@app.on_event("startup")
+def on_startup():
+    try:
+        init_db_grammar()
+    except Exception as e:
+        # No queremos tirar el server si la BD aún no está lista; lo logueamos.
+        print(f"[startup] init_db_grammar failed: {e}")
 
 
 class TokenRequest(BaseModel):
@@ -328,6 +650,64 @@ async def save_transcript(item: TranscriptItem):
     ensure_chat(chat_id)
     store_message(chat_id, item.role, item.content.strip(), item.mode)
     return {"ok": True}
+
+
+# ---------------------------- Grammar endpoints ------------------------------
+
+class AttemptItem(BaseModel):
+    lesson_id: int
+    exercise_index: int
+    user_answer: str | None = None
+
+
+@app.get("/api/grammar/today")
+async def grammar_today(mode: str):
+    if mode not in MODES:
+        raise HTTPException(status_code=400, detail="Modo desconocido")
+    chat_id = web_chat_id(mode)
+    ensure_chat(chat_id)
+    try:
+        lesson = get_or_create_today_lesson(chat_id, mode)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"No se pudo generar la lección: {e}")
+    return lesson
+
+
+@app.post("/api/grammar/attempt")
+async def grammar_attempt(mode: str, item: AttemptItem):
+    """Evalúa la respuesta en el servidor (no nos fiamos del cliente) y la guarda."""
+    if mode not in MODES:
+        raise HTTPException(status_code=400, detail="Modo desconocido")
+    chat_id = web_chat_id(mode)
+
+    # Cargar la lección y comprobar que pertenece a este chat_id
+    with db_cursor() as cur:
+        cur.execute(
+            "SELECT exercises FROM grammar_lessons WHERE id = %s AND chat_id = %s",
+            (item.lesson_id, chat_id),
+        )
+        row = cur.fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Lección no encontrada para este perfil")
+
+    exercises = row["exercises"]
+    if not isinstance(exercises, list) or not (0 <= item.exercise_index < len(exercises)):
+        raise HTTPException(status_code=400, detail="exercise_index fuera de rango")
+
+    is_correct = evaluate_answer(exercises[item.exercise_index], item.user_answer)
+
+    with db_cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO grammar_attempts
+              (chat_id, lesson_id, exercise_index, user_answer, is_correct)
+            VALUES (%s, %s, %s, %s, %s)
+            """,
+            (chat_id, item.lesson_id, item.exercise_index, item.user_answer, is_correct),
+        )
+    return {"ok": True, "is_correct": is_correct}
 
 
 # Servir estáticos al final para que las rutas API tengan prioridad
