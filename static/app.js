@@ -13,6 +13,11 @@ const state = {
   lesson: null,
   exerciseIdx: 0,
   correctCount: 0,
+  // Vocab
+  vocabSession: null,
+  vocabStudyIdx: 0,
+  vocabExIdx: 0,
+  vocabCorrectCount: 0,
 };
 
 const els = {
@@ -40,6 +45,13 @@ const els = {
   gramLabel: document.getElementById("gramLabel"),
   gramStatus: document.getElementById("gramStatus"),
   gramBackBtn: document.getElementById("gramBackBtn"),
+  // Vocab
+  actVocab: document.getElementById("actVocab"),
+  vocab: document.getElementById("vocab"),
+  vocabBody: document.getElementById("vocabBody"),
+  vocabLabel: document.getElementById("vocabLabel"),
+  vocabStatus: document.getElementById("vocabStatus"),
+  vocabBackBtn: document.getElementById("vocabBackBtn"),
 };
 
 // ---------- Boot ----------
@@ -103,6 +115,9 @@ els.actSpeak.addEventListener("click", () => guardClick(() => {
 }));
 els.actGrammar.addEventListener("click", () => guardClick(() => {
   if (state.mode) startGrammar(state.mode);
+}));
+els.actVocab.addEventListener("click", () => guardClick(() => {
+  if (state.mode) startVocab(state.mode);
 }));
 
 // ---------- Conversation lifecycle ----------
@@ -536,6 +551,226 @@ function escapeHtml(s) {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
+}
+
+// ---------- Vocabulary ----------
+
+els.vocabBackBtn.addEventListener("click", () => showScreen("subpicker"));
+
+async function startVocab(mode) {
+  els.vocabLabel.textContent = mode.label;
+  els.vocabStatus.textContent = "Cargando…";
+  els.vocabBody.innerHTML = '<div class="grammar-loading">Preparando tus phrasal verbs…</div>';
+  showScreen("vocab");
+
+  state.vocabSession = null;
+  state.vocabStudyIdx = 0;
+  state.vocabExIdx = 0;
+  state.vocabCorrectCount = 0;
+
+  try {
+    const r = await fetch(`/api/vocab/today?mode=${encodeURIComponent(mode.id)}`);
+    if (!r.ok) {
+      const txt = await r.text();
+      throw new Error(`HTTP ${r.status}: ${txt.slice(0, 200)}`);
+    }
+    const session = await r.json();
+    state.vocabSession = session;
+    els.vocabStatus.textContent = session.level || "";
+    renderVocabIntro();
+  } catch (err) {
+    console.error("[vocab] load failed", err);
+    els.vocabStatus.textContent = "Error";
+    els.vocabBody.innerHTML = `
+      <div class="grammar-loading">
+        No se pudo cargar la sesión.<br><br>
+        <button class="gram-cta secondary" id="retryVocabBtn">Reintentar</button>
+      </div>`;
+    document.getElementById("retryVocabBtn").addEventListener("click", () => startVocab(mode));
+  }
+}
+
+function renderVocabIntro() {
+  const s = state.vocabSession;
+  const t = s.totals || { new: 0, reviews: 0, exercises: 0 };
+
+  if (t.new === 0 && t.reviews === 0) {
+    els.vocabBody.innerHTML = `
+      <div class="vocab-empty">
+        <div class="big-icon">✅</div>
+        <h3 class="gram-title">Hoy no toca</h3>
+        <div class="gram-explanation">
+          No tienes phrasal verbs nuevos pendientes ni repasos vencidos.
+          Vuelve mañana para seguir avanzando.
+        </div>
+        <button class="gram-cta secondary" id="vocabDoneBtn" style="margin-top: 1rem;">Volver</button>
+      </div>`;
+    document.getElementById("vocabDoneBtn").addEventListener("click", () => showScreen("subpicker"));
+    return;
+  }
+
+  // Si hay nuevos → empezamos por estudiar; si solo hay repasos → directos a ejercicios.
+  els.vocabBody.innerHTML = `
+    <div class="gram-meta">${s.level} · ${t.new} ${t.new === 1 ? "nuevo" : "nuevos"} · ${t.reviews} ${t.reviews === 1 ? "repaso" : "repasos"}</div>
+    <h3 class="gram-title">Phrasal verbs de hoy</h3>
+    <div class="gram-explanation">
+      Primero veremos los phrasal verbs nuevos del día con sus ejemplos.
+      Después los pondremos a prueba mezclando los nuevos con los repasos pendientes.
+    </div>
+    <button class="gram-cta" id="startVocabBtn">${t.new > 0 ? "Empezar a estudiar →" : "Ir a los ejercicios →"}</button>
+  `;
+  els.vocabBody.scrollTop = 0;
+  document.getElementById("startVocabBtn").addEventListener("click", () => {
+    if ((s.study || []).length > 0) {
+      state.vocabStudyIdx = 0;
+      renderVocabStudyCard();
+    } else {
+      state.vocabExIdx = 0;
+      renderVocabExercise();
+    }
+  });
+}
+
+function renderVocabStudyCard() {
+  const s = state.vocabSession;
+  const idx = state.vocabStudyIdx;
+  const total = s.study.length;
+  const it = s.study[idx];
+  const last = idx + 1 >= total;
+
+  els.vocabBody.innerHTML = `
+    <div class="gram-progress">Nuevo ${idx + 1} de ${total}</div>
+    <div class="voc-card">
+      <div class="voc-phrasal">${escapeHtml(it.phrasal)}</div>
+      <div class="voc-meaning">${escapeHtml(it.meaning_es)}</div>
+      <div class="voc-meaning-en">${escapeHtml(it.meaning_en || "")}</div>
+      <div class="gram-section-title">Examples</div>
+      <div class="gram-examples">
+        ${(it.examples || []).map(ex => `
+          <div class="gram-example">
+            <div class="en">${escapeHtml(ex.en)}</div>
+            <div class="es">${escapeHtml(ex.es || "")}</div>
+          </div>
+        `).join("")}
+      </div>
+    </div>
+    <button class="gram-cta" id="nextStudyBtn">${last ? "Empezar ejercicios →" : "Lo entendí →"}</button>
+  `;
+  els.vocabBody.scrollTop = 0;
+  document.getElementById("nextStudyBtn").addEventListener("click", () => {
+    if (last) {
+      state.vocabExIdx = 0;
+      state.vocabCorrectCount = 0;
+      renderVocabExercise();
+    } else {
+      state.vocabStudyIdx++;
+      renderVocabStudyCard();
+    }
+  });
+}
+
+function renderVocabExercise() {
+  const s = state.vocabSession;
+  const idx = state.vocabExIdx;
+  const total = s.exercises.length;
+
+  if (idx >= total) {
+    renderVocabResult();
+    return;
+  }
+
+  const ex = s.exercises[idx];
+  els.vocabBody.innerHTML = `
+    <div class="gram-progress">Pregunta ${idx + 1} de ${total}</div>
+    <div class="gram-question">
+      <div class="q">${escapeHtml(ex.question)}</div>
+      <div class="gram-options" id="opts">
+        ${ex.options.map((opt, i) => `
+          <button class="gram-option" data-i="${i}">${escapeHtml(opt)}</button>
+        `).join("")}
+      </div>
+      <div id="feedback"></div>
+    </div>
+  `;
+  const opts = els.vocabBody.querySelectorAll(".gram-option");
+  opts.forEach(btn => btn.addEventListener("click", () => handleVocabAnswer(btn, ex, opts)));
+  els.vocabBody.scrollTop = 0;
+}
+
+async function handleVocabAnswer(btn, ex, allBtns) {
+  const chosen = btn.textContent;
+  const isCorrect = chosen === ex.correct;
+  allBtns.forEach(b => { b.disabled = true; });
+  if (isCorrect) {
+    btn.classList.add("correct");
+    state.vocabCorrectCount++;
+  } else {
+    btn.classList.add("wrong");
+    allBtns.forEach(b => {
+      if (b.textContent === ex.correct) b.classList.add("correct");
+    });
+  }
+
+  // Feedback con la definición y los ejemplos
+  const fb = document.getElementById("feedback");
+  fb.className = `gram-feedback ${isCorrect ? "correct" : "wrong"}`;
+  const head = isCorrect ? "✓ Correct" : "✗ Not quite";
+  const examples = (ex.examples || []).slice(0, 2).map(e => `
+    <div class="gram-example" style="margin-top: 0.5rem;">
+      <div class="en">${escapeHtml(e.en)}</div>
+      <div class="es">${escapeHtml(e.es || "")}</div>
+    </div>
+  `).join("");
+  fb.innerHTML = `
+    <strong>${head}.</strong> <em>${escapeHtml(ex.phrasal)}</em> = ${escapeHtml(ex.correct)}.
+    <span class="answer">${escapeHtml(ex.explanation || "")}</span>
+    ${examples}
+  `;
+
+  // Guardar respuesta en el servidor (Leitner). Fire-and-forget.
+  fetch(`/api/vocab/answer?mode=${encodeURIComponent(state.mode.id)}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      phrasal_id: ex.phrasal_id,
+      user_answer: chosen,
+    }),
+  }).catch(err => console.warn("[vocab] answer save failed", err));
+
+  const next = document.createElement("button");
+  next.className = "gram-cta";
+  next.style.marginTop = "0.8rem";
+  next.textContent = state.vocabExIdx + 1 >= state.vocabSession.exercises.length ? "Ver resultado →" : "Siguiente →";
+  next.addEventListener("click", () => {
+    state.vocabExIdx++;
+    renderVocabExercise();
+  });
+  fb.parentElement.appendChild(next);
+  next.focus();
+}
+
+function renderVocabResult() {
+  const total = state.vocabSession.exercises.length;
+  const score = state.vocabCorrectCount;
+  const pct = total > 0 ? Math.round((score / total) * 100) : 0;
+  let label = "Sigue practicando";
+  if (pct >= 80) label = "¡Genial! Te los sabes";
+  else if (pct >= 60) label = "Buen trabajo";
+  else if (pct >= 40) label = "Vas cogiéndolos";
+
+  els.vocabBody.innerHTML = `
+    <div class="gram-result">
+      <div class="score">${score} / ${total}</div>
+      <div class="label">${label}</div>
+      <div class="actions">
+        <button class="gram-cta" id="vocSpeakBtn">Hablar de esto con ${escapeHtml(state.mode.label)}</button>
+        <button class="gram-cta secondary" id="vocDoneBtn">Terminar</button>
+      </div>
+    </div>
+  `;
+  document.getElementById("vocSpeakBtn").addEventListener("click", () => startVoice(state.mode));
+  document.getElementById("vocDoneBtn").addEventListener("click", () => showScreen("subpicker"));
+  els.vocabBody.scrollTop = 0;
 }
 
 boot();

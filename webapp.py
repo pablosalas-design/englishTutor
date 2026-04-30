@@ -6,6 +6,7 @@ con el bot de Telegram para mantener memoria larga y resúmenes semanales.
 """
 import json
 import os
+import random
 import re
 from contextlib import contextmanager
 from datetime import date, datetime, timezone
@@ -155,6 +156,40 @@ def init_db_grammar():
             );
             CREATE INDEX IF NOT EXISTS idx_grammar_attempts_lesson
               ON grammar_attempts(lesson_id);
+        """)
+
+
+def init_db_vocab():
+    """Crea las tablas de la pestaña Vocabulario (phrasal verbs + SRS) si no existen."""
+    with db_cursor() as cur:
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS phrasal_verbs (
+              id SERIAL PRIMARY KEY,
+              level TEXT NOT NULL,            -- 'B2-C1' o 'A2-B1'
+              phrasal TEXT NOT NULL,          -- ej. "look forward to"
+              meaning_es TEXT NOT NULL,       -- significado en español
+              meaning_en TEXT NOT NULL,       -- definición corta en inglés
+              examples JSONB NOT NULL,        -- [{"en": "...", "es": "..."}, ...]
+              created_at TIMESTAMPTZ DEFAULT NOW(),
+              UNIQUE(level, phrasal)
+            );
+            CREATE INDEX IF NOT EXISTS idx_phrasal_verbs_level
+              ON phrasal_verbs(level);
+
+            CREATE TABLE IF NOT EXISTS phrasal_progress (
+              id SERIAL PRIMARY KEY,
+              chat_id BIGINT NOT NULL,
+              phrasal_id INTEGER NOT NULL REFERENCES phrasal_verbs(id) ON DELETE CASCADE,
+              box INTEGER NOT NULL DEFAULT 1, -- 1..5 (Leitner)
+              times_seen INTEGER NOT NULL DEFAULT 0,
+              times_correct INTEGER NOT NULL DEFAULT 0,
+              first_seen_at TIMESTAMPTZ DEFAULT NOW(),
+              last_seen_at TIMESTAMPTZ,
+              next_due_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+              UNIQUE(chat_id, phrasal_id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_phrasal_progress_chat
+              ON phrasal_progress(chat_id, next_due_at);
         """)
 
 
@@ -807,6 +842,437 @@ def evaluate_answer(exercise: dict, user_answer: str | None) -> bool:
 
 
 # ----------------------------------------------------------------------------
+# Vocabulary (phrasal verbs con repetición espaciada Leitner)
+# ----------------------------------------------------------------------------
+
+# Mapeo de modo → nivel de phrasal verbs
+MODE_TO_VOCAB_LEVEL = {
+    "peace": "B2-C1",
+    "lucia": "A2-B1",
+    "leyre": "A2-B1",
+}
+
+# Cuántos phrasal verbs nuevos por sesión (perfil) y cuántos repasos máximo.
+VOCAB_PLAN_BY_MODE = {
+    "peace": {"new": 5, "max_reviews": 10, "exercises_per_item": 1},
+    "lucia": {"new": 3, "max_reviews": 6, "exercises_per_item": 1},
+    "leyre": {"new": 3, "max_reviews": 6, "exercises_per_item": 1},
+}
+
+# Intervalos Leitner (días) por caja: caja 1 = mañana, caja 5 = en un mes.
+LEITNER_INTERVALS_DAYS = {1: 1, 2: 3, 3: 7, 4: 14, 5: 30}
+
+# Tamaño de la "tanda" inicial de seed por nivel y de cada ampliación.
+VOCAB_SEED_BATCH = 40
+VOCAB_REFILL_THRESHOLD = 8   # si quedan menos de N nuevos para este alumno, generar más
+VOCAB_REFILL_BATCH = 20
+
+
+def vocab_plan_for(mode: str) -> dict:
+    return VOCAB_PLAN_BY_MODE.get(mode, VOCAB_PLAN_BY_MODE["peace"])
+
+
+def vocab_level_for(mode: str) -> str:
+    return MODE_TO_VOCAB_LEVEL.get(mode, "B2-C1")
+
+
+VOCAB_SEED_SYSTEM_PROMPT = (
+    "You are an English curriculum designer. Generate a list of useful, common phrasal verbs "
+    "for a Spanish-speaking learner. Each phrasal verb must include: the phrasal verb itself "
+    "(in lowercase, no parentheses, just the words; if it is separable use the canonical form "
+    "like 'pick up'), a short Spanish meaning (3-7 words), a short English definition (5-12 words), "
+    "and exactly two example sentences. Each example has the English sentence and a natural Spanish "
+    "translation. Sentences must be short, natural and conversational, not textbook-style. "
+    "Avoid offensive, sexual, violent, political or scary content. "
+    "Do NOT include phrasal verbs that are too informal, vulgar, or regional. "
+    "Return ONLY valid JSON: an object with key 'items', whose value is an array of objects "
+    "with keys: phrasal, meaning_es, meaning_en, examples (each example: {en, es})."
+)
+
+
+def _vocab_seed_user_prompt(level: str, n: int, exclude: list[str]) -> str:
+    if level == "B2-C1":
+        audience = (
+            "an adult Spanish speaker at level B2-C1 who works in technology, business and design. "
+            "Choose phrasal verbs that are genuinely common in everyday adult conversation, work "
+            "meetings, films and news. Mix everyday ones (run out of, get along with) with slightly "
+            "more advanced ones (pull off, weigh in, brush up on)."
+        )
+    else:
+        audience = (
+            "a Spanish girl aged 11-13 at level A2-B1. Choose simple, very common phrasal verbs "
+            "useful for school, family, friends, hobbies, animals, food and daily routines. "
+            "Avoid anything mature, complex, or work-related."
+        )
+
+    exclude_block = ""
+    if exclude:
+        exclude_block = (
+            "\n\nDo NOT include any of these phrasal verbs (already in the system):\n- "
+            + "\n- ".join(sorted(exclude))
+        )
+
+    return (
+        f"Generate exactly {n} phrasal verbs for {audience}"
+        + exclude_block
+        + "\n\nReturn JSON only, with the schema described in the system message."
+    )
+
+
+def fetch_existing_phrasals(level: str) -> list[str]:
+    with db_cursor() as cur:
+        cur.execute("SELECT phrasal FROM phrasal_verbs WHERE level = %s", (level,))
+        return [r["phrasal"] for r in cur.fetchall()]
+
+
+def _validate_vocab_items(items) -> list[dict]:
+    if not isinstance(items, list):
+        return []
+    clean = []
+    for it in items:
+        if not isinstance(it, dict):
+            continue
+        phrasal = (it.get("phrasal") or "").strip().lower()
+        meaning_es = (it.get("meaning_es") or "").strip()
+        meaning_en = (it.get("meaning_en") or "").strip()
+        examples = it.get("examples") or []
+        if not (phrasal and meaning_es and meaning_en and isinstance(examples, list)):
+            continue
+        ex_clean = []
+        for ex in examples:
+            if not isinstance(ex, dict):
+                continue
+            en = (ex.get("en") or "").strip()
+            es = (ex.get("es") or "").strip()
+            if en and es:
+                ex_clean.append({"en": en, "es": es})
+        if len(ex_clean) < 2:
+            continue
+        clean.append({
+            "phrasal": phrasal,
+            "meaning_es": meaning_es,
+            "meaning_en": meaning_en,
+            "examples": ex_clean[:2],
+        })
+    return clean
+
+
+def generate_phrasal_batch(level: str, n: int) -> list[dict]:
+    """Pide a OpenAI una tanda de phrasal verbs para `level`, excluyendo los ya existentes."""
+    if not openai_client:
+        raise RuntimeError("OPENAI_API_KEY no configurado")
+    existing = fetch_existing_phrasals(level)
+    user_prompt = _vocab_seed_user_prompt(level, n, existing)
+    resp = openai_client.chat.completions.create(
+        model="gpt-4o-mini",
+        response_format={"type": "json_object"},
+        messages=[
+            {"role": "system", "content": VOCAB_SEED_SYSTEM_PROMPT},
+            {"role": "user", "content": user_prompt},
+        ],
+        temperature=0.8,
+    )
+    data = json.loads(resp.choices[0].message.content)
+    items = _validate_vocab_items(data.get("items"))
+    inserted = []
+    with db_cursor() as cur:
+        for it in items:
+            cur.execute(
+                """
+                INSERT INTO phrasal_verbs (level, phrasal, meaning_es, meaning_en, examples)
+                VALUES (%s, %s, %s, %s, %s)
+                ON CONFLICT (level, phrasal) DO NOTHING
+                RETURNING id, phrasal, meaning_es, meaning_en, examples
+                """,
+                (level, it["phrasal"], it["meaning_es"], it["meaning_en"], json.dumps(it["examples"])),
+            )
+            row = cur.fetchone()
+            if row:
+                inserted.append(dict(row))
+    print(f"[vocab] Generated {len(items)} items for {level}, inserted {len(inserted)} new ones.")
+    return inserted
+
+
+def _vocab_lock_key(level: str) -> int:
+    """Clave estable y determinista por nivel para pg_advisory_lock (cabe en bigint)."""
+    import hashlib
+    digest = hashlib.sha1(f"vocab:{level}".encode("utf-8")).digest()
+    # Usamos 4 bytes (32 bits sin signo) y nos quedamos con un int positivo de hasta 31 bits
+    # para que encaje sin riesgo en cualquier interpretación de bigint.
+    return int.from_bytes(digest[:4], "big") & 0x7FFFFFFF
+
+
+def ensure_vocab_pool_for_user(chat_id: int, level: str):
+    """Asegura que haya phrasal verbs nuevos disponibles (no vistos por este alumno).
+
+    Usa un advisory lock por nivel para que dos peticiones concurrentes no disparen
+    dos llamadas a OpenAI a la vez.
+    """
+    with db_cursor() as cur:
+        cur.execute(
+            """
+            SELECT COUNT(*) AS c
+            FROM phrasal_verbs pv
+            LEFT JOIN phrasal_progress pp
+              ON pp.phrasal_id = pv.id AND pp.chat_id = %s
+            WHERE pv.level = %s AND pp.id IS NULL
+            """,
+            (chat_id, level),
+        )
+        unseen = cur.fetchone()["c"]
+
+    if unseen >= VOCAB_REFILL_THRESHOLD:
+        return
+
+    lock_key = _vocab_lock_key(level)
+    with db_cursor() as cur:
+        # Espera (bloqueante) al lock por nivel — la otra petición saldrá del with
+        # y aquí re-evaluamos si todavía hace falta generar.
+        cur.execute("SELECT pg_advisory_lock(%s)", (lock_key,))
+        try:
+            cur.execute(
+                """
+                SELECT COUNT(*) AS c
+                FROM phrasal_verbs pv
+                LEFT JOIN phrasal_progress pp
+                  ON pp.phrasal_id = pv.id AND pp.chat_id = %s
+                WHERE pv.level = %s AND pp.id IS NULL
+                """,
+                (chat_id, level),
+            )
+            unseen2 = cur.fetchone()["c"]
+            if unseen2 >= VOCAB_REFILL_THRESHOLD:
+                # Otra petición ya rellenó mientras esperábamos.
+                return
+            cur.execute("SELECT COUNT(*) AS c FROM phrasal_verbs WHERE level = %s", (level,))
+            total = cur.fetchone()["c"]
+            batch = VOCAB_SEED_BATCH if total == 0 else VOCAB_REFILL_BATCH
+            try:
+                generate_phrasal_batch(level, batch)
+            except Exception as e:
+                print(f"[vocab] generate_phrasal_batch failed: {e}")
+        finally:
+            cur.execute("SELECT pg_advisory_unlock(%s)", (lock_key,))
+
+
+def fetch_due_reviews(chat_id: int, level: str, limit: int) -> list[dict]:
+    with db_cursor() as cur:
+        cur.execute(
+            """
+            SELECT pv.id, pv.phrasal, pv.meaning_es, pv.meaning_en, pv.examples,
+                   pp.box, pp.times_seen, pp.times_correct
+            FROM phrasal_progress pp
+            JOIN phrasal_verbs pv ON pv.id = pp.phrasal_id
+            WHERE pp.chat_id = %s
+              AND pv.level = %s
+              AND pp.next_due_at <= NOW()
+            ORDER BY pp.next_due_at ASC
+            LIMIT %s
+            """,
+            (chat_id, level, limit),
+        )
+        return [dict(r) for r in cur.fetchall()]
+
+
+def fetch_new_for_user(chat_id: int, level: str, limit: int) -> list[dict]:
+    """Phrasal verbs que este alumno aún no ha visto."""
+    with db_cursor() as cur:
+        cur.execute(
+            """
+            SELECT pv.id, pv.phrasal, pv.meaning_es, pv.meaning_en, pv.examples
+            FROM phrasal_verbs pv
+            LEFT JOIN phrasal_progress pp
+              ON pp.phrasal_id = pv.id AND pp.chat_id = %s
+            WHERE pv.level = %s AND pp.id IS NULL
+            ORDER BY pv.id ASC
+            LIMIT %s
+            """,
+            (chat_id, level, limit),
+        )
+        return [dict(r) for r in cur.fetchall()]
+
+
+GENERIC_DISTRACTORS = [
+    "Hacer una compra",
+    "Olvidar algo importante",
+    "Cambiar de tema",
+    "Dormir profundamente",
+    "Llegar tarde a un sitio",
+    "Hablar más bajo",
+    "Pedir un favor",
+    "Esconder algo",
+    "Abrir una ventana",
+    "Recordar el pasado",
+]
+
+
+def fetch_distractor_meanings(
+    level: str,
+    exclude_ids: list[int],
+    exclude_meanings: list[str],
+    n: int = 3,
+) -> list[str]:
+    """Significados (es) de OTROS phrasal verbs del mismo nivel, para usar como distractores.
+
+    Filtra significados que coinciden con los de los items en juego (incluida la
+    respuesta correcta) para que ningún distractor sea ambiguo o duplicado.
+    """
+    safe_exclude_ids = list(exclude_ids) if exclude_ids else [-1]
+    safe_exclude_meanings = [m for m in (exclude_meanings or []) if m]
+    if not safe_exclude_meanings:
+        safe_exclude_meanings = [""]
+    with db_cursor() as cur:
+        # En vez de SELECT DISTINCT + ORDER BY random() (no válido en PG), tomamos
+        # una muestra aleatoria amplia y deduplicamos en Python.
+        cur.execute(
+            """
+            SELECT meaning_es FROM phrasal_verbs
+            WHERE level = %s
+              AND id <> ALL(%s)
+              AND meaning_es <> ALL(%s)
+            ORDER BY random()
+            LIMIT %s
+            """,
+            (level, safe_exclude_ids, safe_exclude_meanings, max(n * 3, 12)),
+        )
+        rows = [r["meaning_es"] for r in cur.fetchall()]
+        seen: set[str] = set()
+        out: list[str] = []
+        for m in rows:
+            if m not in seen:
+                seen.add(m)
+                out.append(m)
+            if len(out) >= n:
+                break
+        return out
+
+
+def build_vocab_exercises(items: list[dict], level: str) -> list[dict]:
+    """Para cada phrasal de la sesión, construye 1 ejercicio (multiple choice de significado).
+
+    Garantiza 4 opciones únicas y que la correcta no aparezca repetida.
+    """
+    if not items:
+        return []
+    item_ids = [it["id"] for it in items]
+    item_meanings = [it["meaning_es"] for it in items]
+    exercises = []
+    for idx, it in enumerate(items):
+        correct = it["meaning_es"]
+        # Pedimos algunos extra y luego nos quedamos con 3 únicos distintos del correcto.
+        candidates = fetch_distractor_meanings(
+            level, item_ids, exclude_meanings=[correct], n=8
+        )
+        distractors: list[str] = []
+        seen = {correct}
+        for c in candidates:
+            if c not in seen:
+                distractors.append(c)
+                seen.add(c)
+            if len(distractors) >= 3:
+                break
+        # Si seguimos cortos (BD muy pequeña), usamos distractores genéricos únicos.
+        for g in GENERIC_DISTRACTORS:
+            if len(distractors) >= 3:
+                break
+            if g not in seen:
+                distractors.append(g)
+                seen.add(g)
+        options = [correct] + distractors[:3]
+        random.shuffle(options)
+        question_en = (
+            f"What does \"{it['phrasal']}\" mean?"
+            if level == "B2-C1"
+            else f"¿Qué significa \"{it['phrasal']}\"?"
+        )
+        exercises.append({
+            "phrasal_id": it["id"],
+            "phrasal": it["phrasal"],
+            "type": "meaning_mc",
+            "question": question_en,
+            "options": options,
+            "correct": correct,
+            "explanation": it.get("meaning_en", ""),
+            "examples": it.get("examples", []),
+        })
+    random.shuffle(exercises)
+    return exercises
+
+
+def build_today_vocab_session(chat_id: int, mode: str) -> dict:
+    """Devuelve {study: [...], reviews: [...], exercises: [...]} para la sesión de hoy."""
+    level = vocab_level_for(mode)
+    plan = vocab_plan_for(mode)
+
+    ensure_vocab_pool_for_user(chat_id, level)
+
+    new_items = fetch_new_for_user(chat_id, level, plan["new"])
+    reviews = fetch_due_reviews(chat_id, level, plan["max_reviews"])
+
+    # Mezclamos new + reviews para los ejercicios; el bloque "study" sólo lleva los nuevos.
+    practice_items = new_items + reviews
+    exercises = build_vocab_exercises(practice_items, level)
+
+    return {
+        "level": level,
+        "mode": mode,
+        "study": new_items,         # tarjetas nuevas que ver antes de practicar
+        "reviews_count": len(reviews),
+        "exercises": exercises,
+        "totals": {
+            "new": len(new_items),
+            "reviews": len(reviews),
+            "exercises": len(exercises),
+        },
+    }
+
+
+def evaluate_vocab_answer(exercise: dict, user_answer: str | None) -> bool:
+    if user_answer is None:
+        return False
+    return user_answer.strip() == (exercise.get("correct") or "").strip()
+
+
+def update_phrasal_progress(chat_id: int, phrasal_id: int, is_correct: bool) -> dict:
+    """Actualiza la caja Leitner y la próxima fecha. Devuelve el progreso resultante."""
+    with db_cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO phrasal_progress
+              (chat_id, phrasal_id, box, times_seen, times_correct, last_seen_at, next_due_at)
+            VALUES (%s, %s, %s, 1, %s, NOW(), NOW() + (%s || ' days')::interval)
+            ON CONFLICT (chat_id, phrasal_id) DO UPDATE SET
+              box = LEAST(5, GREATEST(1,
+                CASE WHEN %s THEN phrasal_progress.box + 1 ELSE 1 END
+              )),
+              times_seen = phrasal_progress.times_seen + 1,
+              times_correct = phrasal_progress.times_correct + CASE WHEN %s THEN 1 ELSE 0 END,
+              last_seen_at = NOW(),
+              next_due_at = NOW() + (
+                CASE LEAST(5, GREATEST(1,
+                  CASE WHEN %s THEN phrasal_progress.box + 1 ELSE 1 END
+                ))
+                  WHEN 1 THEN INTERVAL '1 day'
+                  WHEN 2 THEN INTERVAL '3 days'
+                  WHEN 3 THEN INTERVAL '7 days'
+                  WHEN 4 THEN INTERVAL '14 days'
+                  ELSE INTERVAL '30 days'
+                END
+              )
+            RETURNING box, times_seen, times_correct, next_due_at
+            """,
+            (
+                chat_id, phrasal_id,
+                2 if is_correct else 1,
+                1 if is_correct else 0,
+                LEITNER_INTERVALS_DAYS[2 if is_correct else 1],
+                is_correct, is_correct, is_correct,
+            ),
+        )
+        return dict(cur.fetchone())
+
+
+# ----------------------------------------------------------------------------
 # FastAPI app
 # ----------------------------------------------------------------------------
 
@@ -820,6 +1286,10 @@ def on_startup():
     except Exception as e:
         # No queremos tirar el server si la BD aún no está lista; lo logueamos.
         print(f"[startup] init_db_grammar failed: {e}")
+    try:
+        init_db_vocab()
+    except Exception as e:
+        print(f"[startup] init_db_vocab failed: {e}")
 
 
 class TokenRequest(BaseModel):
@@ -997,6 +1467,49 @@ async def grammar_regenerate(mode: str, item: RegenerateItem):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"No se pudieron regenerar los ejercicios: {e}")
+
+
+# ---------------------------- Vocab endpoints ------------------------------
+
+class VocabAnswerItem(BaseModel):
+    phrasal_id: int
+    user_answer: str | None = None
+
+
+@app.get("/api/vocab/today")
+async def vocab_today(mode: str):
+    if mode not in MODES:
+        raise HTTPException(status_code=400, detail="Modo desconocido")
+    chat_id = web_chat_id(mode)
+    ensure_chat(chat_id)
+    try:
+        session = build_today_vocab_session(chat_id, mode)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"No se pudo preparar la sesión: {e}")
+    return session
+
+
+@app.post("/api/vocab/answer")
+async def vocab_answer(mode: str, item: VocabAnswerItem):
+    """Evalúa la respuesta y actualiza la caja Leitner del alumno para ese phrasal."""
+    if mode not in MODES:
+        raise HTTPException(status_code=400, detail="Modo desconocido")
+    chat_id = web_chat_id(mode)
+    level = vocab_level_for(mode)
+
+    with db_cursor() as cur:
+        cur.execute(
+            "SELECT id, meaning_es FROM phrasal_verbs WHERE id = %s AND level = %s",
+            (item.phrasal_id, level),
+        )
+        row = cur.fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Phrasal verb no encontrado para este nivel")
+
+    is_correct = (item.user_answer or "").strip() == (row["meaning_es"] or "").strip()
+    progress = update_phrasal_progress(chat_id, item.phrasal_id, is_correct)
+    progress["next_due_at"] = progress["next_due_at"].isoformat()
+    return {"ok": True, "is_correct": is_correct, "correct_meaning": row["meaning_es"], "progress": progress}
 
 
 # Servir estáticos al final para que las rutas API tengan prioridad

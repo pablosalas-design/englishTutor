@@ -445,8 +445,43 @@ html, body {
 .gram-result .label { color: var(--text-dim); margin-bottom: 1.5rem; }
 .gram-result .actions { display: flex; flex-direction: column; gap: 0.6rem; max-width: 320px; margin: 0 auto; }
 
+/* ---------- Vocabulary screen ---------- */
+.voc-card {
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  padding: 1.4rem 1.2rem 1.2rem;
+  margin-bottom: 1.2rem;
+}
+.voc-phrasal {
+  font-size: 1.9rem;
+  font-weight: 700;
+  color: var(--mc-color, var(--accent));
+  margin-bottom: 0.5rem;
+  letter-spacing: -0.01em;
+}
+.voc-meaning {
+  font-size: 1.15rem;
+  font-weight: 600;
+  margin-bottom: 0.2rem;
+}
+.voc-meaning-en {
+  color: var(--text-dim);
+  font-size: 0.9rem;
+  font-style: italic;
+}
+.vocab-empty {
+  text-align: center;
+  padding: 3rem 1rem;
+}
+.vocab-empty .big-icon {
+  font-size: 3rem;
+  margin-bottom: 1rem;
+}
+
 /* ---------- Responsive ---------- */
 @media (min-width: 700px) {
   .orb { width: 280px; height: 280px; }
   #picker h1 { font-size: 2rem; }
+  .voc-phrasal { font-size: 2.2rem; }
 }

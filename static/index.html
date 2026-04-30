@@ -13,7 +13,7 @@
   <link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
   <link rel="icon" type="image/png" sizes="32x32" href="/static/favicon-32.png">
   <link rel="icon" type="image/png" sizes="192x192" href="/static/icon-192.png">
-  <link rel="stylesheet" href="/static/styles.css?v=13">
+  <link rel="stylesheet" href="/static/styles.css?v=14">
 </head>
 <body>
   <main id="app">
@@ -52,6 +52,14 @@
           </div>
           <div class="act-arrow">→</div>
         </button>
+        <button class="activity-card" id="actVocab">
+          <div class="act-icon">🃏</div>
+          <div class="act-info">
+            <div class="act-name">Vocabulario</div>
+            <div class="act-sub">Phrasal verbs nuevos + repaso del día</div>
+          </div>
+          <div class="act-arrow">→</div>
+        </button>
       </div>
     </section>
 
@@ -67,6 +75,21 @@
       </header>
       <div class="grammar-body" id="grammarBody">
         <div class="grammar-loading" id="grammarLoading">Generando tu lección de hoy…</div>
+      </div>
+    </section>
+
+    <!-- Pantalla de vocabulario -->
+    <section id="vocab" class="screen">
+      <header class="conv-header">
+        <button class="back-btn" id="vocabBackBtn" aria-label="Volver">←</button>
+        <div class="conv-title">
+          <h2 id="vocabLabel">Vocabulario</h2>
+          <span class="status-pill" id="vocabStatus">Cargando…</span>
+        </div>
+        <span class="back-btn" style="visibility:hidden">←</span>
+      </header>
+      <div class="grammar-body" id="vocabBody">
+        <div class="grammar-loading" id="vocabLoading">Preparando tus phrasal verbs…</div>
       </div>
     </section>
 
@@ -93,7 +116,7 @@
     </section>
   </main>
 
-  <script type="module" src="/static/app.js?v=13"></script>
+  <script type="module" src="/static/app.js?v=14"></script>
   <script>
     if ("serviceWorker" in navigator) {
       window.addEventListener("load", () => {

@@ -60,9 +60,22 @@ Flow: persona picker → activity picker (`Hablar` / `Gramática`) → voice scr
 - DB tables: `grammar_lessons` (UNIQUE `chat_id`+`lesson_date`) and `grammar_attempts`.
 - `web_chat_id` mapping: `peace=-1001`, `lucia=-1002`, `leyre=-1003`.
 
+#### Vocabulary feature (phrasal verbs + Leitner SRS)
+
+- `GET /api/vocab/today?mode={peace|lucia|leyre}` returns today's vocab session: `{level, mode, study, reviews_count, exercises, totals}`.
+  - `study`: NEW phrasal verbs the user has never seen, capped at the per-mode plan (peace=5/day, kids=3/day).
+  - `exercises`: meaning-MC quiz built from the new ones + due reviews (max reviews per mode: peace=10, kids=6). Distractors are random meanings from other phrasal verbs at the same level.
+- `POST /api/vocab/answer?mode=...` body `{phrasal_id, user_answer}` re-evaluates correctness on the server (compares against `phrasal_verbs.meaning_es`) and updates the Leitner box for that `(chat_id, phrasal_id)` pair. Intervals (days): box1=1, box2=3, box3=7, box4=14, box5=30. Correct → box+1 (max 5). Wrong → box=1.
+- `MODE_TO_VOCAB_LEVEL`: `peace`→`B2-C1`, `lucia`/`leyre`→`A2-B1`.
+- Pool seeding is **lazy and per-level**:
+  - On first `/api/vocab/today` for an unseen level, generates a `VOCAB_SEED_BATCH` (=40) using `gpt-4o-mini` with structured JSON output. ~30s, costs cents.
+  - When the user has fewer than `VOCAB_REFILL_THRESHOLD` (=8) unseen items left for their level, generates another `VOCAB_REFILL_BATCH` (=20). Existing phrasals are sent in the prompt's exclude list to avoid duplicates.
+  - Generation is idempotent thanks to `UNIQUE(level, phrasal)`.
+- DB tables: `phrasal_verbs` (level + phrasal verb + Spanish meaning + English definition + 2 examples) and `phrasal_progress` (per chat_id: box, times_seen, times_correct, last_seen_at, next_due_at).
+
 #### Static assets cache
 
-Query string `?v=13` on `app.js` and `styles.css`; service worker cache is `tutor-shell-v10`. After deploying, do a hard refresh (or close/reopen the PWA) so the new SW activates.
+Query string `?v=14` on `app.js` and `styles.css`; service worker cache is `tutor-shell-v11`. After deploying, do a hard refresh (or close/reopen the PWA) so the new SW activates.
 
 The voice screen uses only the animated orb (`#orb`). The previous 3D avatar system (Ready Player Me / `.glb` model, three.js, `avatar.js`, `AVATAR_*` env vars) was fully removed.
 
