@@ -70,7 +70,7 @@ def kid_prompt(name: str) -> str:
 
 
 # URLs de los avatares 3D Ready Player Me (configurables por env, sin redeploy)
-AVATAR_PEACE_URL = os.getenv("AVATAR_PEACE_URL", "")
+AVATAR_PEACE_URL = os.getenv("AVATAR_PEACE_URL", "/static/avatars/peace.glb")
 AVATAR_MIA_URL = os.getenv("AVATAR_MIA_URL", "")  # Mia es la misma para Lucía y Leyre
 
 MODES = {
