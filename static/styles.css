@@ -178,6 +178,9 @@ html, body {
   max-height: 56vh;
   display: block;
 }
+.avatar-canvas[hidden] {
+  display: none;
+}
 
 .avatar-loader {
   position: absolute;
