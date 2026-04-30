@@ -1,4 +1,4 @@
-const CACHE_NAME = "tutor-shell-v4";
+const CACHE_NAME = "tutor-shell-v5";
 const SHELL = [
   "/",
   "/static/styles.css",

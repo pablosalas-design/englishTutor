@@ -4,18 +4,25 @@
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 
+// Lista expandida de morphs para lipsync, cubriendo ARKit, Avaturn, RPM y Oculus visemes.
 const VISEME_TARGETS = [
-  // Morphs principales que vamos a animar para el lipsync.
-  "jawOpen",
-  "mouthOpen",
-  "mouthFunnel",
-  "mouthPucker",
-  "mouthSmile",
-  "mouthSmileLeft",
-  "mouthSmileRight",
+  "jawOpen", "JawOpen", "jaw_open",
+  "mouthOpen", "MouthOpen", "mouth_open",
+  "mouthFunnel", "MouthFunnel", "mouth_funnel",
+  "mouthPucker", "MouthPucker", "mouth_pucker",
+  "mouthSmile", "mouthSmileLeft", "mouthSmileRight",
+  "mouthSmile_L", "mouthSmile_R",
+  "viseme_aa", "viseme_E", "viseme_I", "viseme_O", "viseme_U",
+  "viseme_PP", "viseme_FF", "viseme_TH", "viseme_DD", "viseme_kk",
+  "viseme_CH", "viseme_SS", "viseme_nn", "viseme_RR", "viseme_sil",
 ];
 
-const BLINK_TARGETS = ["eyeBlinkLeft", "eyeBlinkRight"];
+const BLINK_TARGETS = [
+  "eyeBlinkLeft", "eyeBlinkRight",
+  "eyeBlink_L", "eyeBlink_R",
+  "EyeBlinkLeft", "EyeBlinkRight",
+  "eyesClosed",
+];
 
 class Avatar3D {
   constructor(canvas) {
@@ -112,11 +119,15 @@ class Avatar3D {
     const loader = new GLTFLoader();
     const gltf = await loader.loadAsync(finalUrl);
     const root = gltf.scene;
+    const allMorphNames = new Set();
     root.traverse((obj) => {
       if (obj.isMesh) {
         obj.frustumCulled = false;
         if (obj.morphTargetDictionary && obj.morphTargetInfluences) {
           const indices = {};
+          for (const name of Object.keys(obj.morphTargetDictionary)) {
+            allMorphNames.add(name);
+          }
           for (const name of VISEME_TARGETS.concat(BLINK_TARGETS)) {
             if (name in obj.morphTargetDictionary) {
               indices[name] = obj.morphTargetDictionary[name];
@@ -131,6 +142,8 @@ class Avatar3D {
         this.headBone = obj;
       }
     });
+    console.log("[avatar] morphs found:", [...allMorphNames]);
+    console.log("[avatar] mouth/blink morphs matched:", this.morphMeshes.map(m => Object.keys(m.indices)));
 
     this.avatarRoot = root;
     this.scene.add(root);
@@ -155,14 +168,24 @@ class Avatar3D {
     // El "alto" del avatar (Y). Si es 0 (caso raro), salimos.
     const height = size.y || 1;
 
-    // Punto objetivo: aproximadamente la cabeza (90% de la altura desde el suelo)
-    const headY = box.min.y + height * 0.92;
-    const headTarget = new THREE.Vector3(center.x, headY, center.z);
+    // Punto objetivo: si tenemos el hueso de la cabeza, lo usamos (más fiable),
+    // si no, estimamos que la cabeza está al ~92% de la altura desde el suelo.
+    let headTarget;
+    if (this.headBone) {
+      const headPos = new THREE.Vector3();
+      this.headBone.getWorldPosition(headPos);
+      // Bajamos un pelín para encuadrar cara + hombros, no la coronilla
+      headTarget = new THREE.Vector3(headPos.x, headPos.y - height * 0.05, headPos.z);
+    } else {
+      const headY = box.min.y + height * 0.90;
+      headTarget = new THREE.Vector3(center.x, headY, center.z);
+    }
 
-    // Distancia de la cámara para que la cabeza ocupe ~40% de la vista
+    // Distancia: queremos que cabeza+cuello+hombros ocupen ~70% del alto del canvas.
+    // Cabeza humana ≈ 13% de la altura total. Encuadre busto ≈ 25% de altura.
     const fovRad = (this.camera.fov * Math.PI) / 180;
-    const headSize = height * 0.18; // tamaño aproximado de cabeza+cuello
-    const distance = (headSize / Math.tan(fovRad / 2)) * 1.4;
+    const frameHeight = height * 0.30; // alto que queremos que ocupe la pantalla
+    const distance = (frameHeight / 2) / Math.tan(fovRad / 2);
 
     this.camera.position.set(headTarget.x, headTarget.y, headTarget.z + distance);
     this.camera.lookAt(headTarget);
@@ -172,6 +195,7 @@ class Avatar3D {
 
     console.log("[avatar] framed", {
       bbox: { min: box.min.toArray(), max: box.max.toArray() },
+      headBone: !!this.headBone,
       target: headTarget.toArray(),
       distance,
     });
@@ -229,22 +253,36 @@ class Avatar3D {
     return Math.min(1, rms * 6);
   }
 
+  _setMorph(indices, mesh, names, value) {
+    for (const n of names) {
+      if (n in indices) {
+        mesh.morphTargetInfluences[indices[n]] = value;
+      }
+    }
+  }
+
   _applyMouth(value) {
     // value: 0..1
-    const jaw = value * 0.75;
-    const mouth = value * 0.5;
+    const jaw = value * 0.85;
+    const mouth = value * 0.6;
     const funnel = Math.max(0, value - 0.4) * 0.6;
     for (const { mesh, indices } of this.morphMeshes) {
-      if ("jawOpen" in indices) mesh.morphTargetInfluences[indices.jawOpen] = jaw;
-      if ("mouthOpen" in indices) mesh.morphTargetInfluences[indices.mouthOpen] = mouth;
-      if ("mouthFunnel" in indices) mesh.morphTargetInfluences[indices.mouthFunnel] = funnel;
+      this._setMorph(indices, mesh, ["jawOpen", "JawOpen", "jaw_open"], jaw);
+      this._setMorph(indices, mesh, ["mouthOpen", "MouthOpen", "mouth_open"], mouth);
+      this._setMorph(indices, mesh, ["mouthFunnel", "MouthFunnel", "mouth_funnel"], funnel);
+      // Visemas Oculus: cuando hay amplitud, abrimos vocal "aa"
+      this._setMorph(indices, mesh, ["viseme_aa"], jaw);
+      this._setMorph(indices, mesh, ["viseme_O"], funnel);
     }
   }
 
   _applyBlink(value) {
     for (const { mesh, indices } of this.morphMeshes) {
-      if ("eyeBlinkLeft" in indices) mesh.morphTargetInfluences[indices.eyeBlinkLeft] = value;
-      if ("eyeBlinkRight" in indices) mesh.morphTargetInfluences[indices.eyeBlinkRight] = value;
+      this._setMorph(indices, mesh,
+        ["eyeBlinkLeft", "eyeBlink_L", "EyeBlinkLeft"], value);
+      this._setMorph(indices, mesh,
+        ["eyeBlinkRight", "eyeBlink_R", "EyeBlinkRight"], value);
+      this._setMorph(indices, mesh, ["eyesClosed"], value);
     }
   }
 
