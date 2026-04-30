@@ -103,26 +103,34 @@ async function startConversation(mode) {
 
 async function loadAvatarFor(mode) {
   const url = mode.avatar_url || "";
+  console.log("[app] loadAvatarFor", { mode: mode.id, url });
   if (!url) {
     // No hay avatar configurado: mostramos el orbe como respaldo
     els.orb.hidden = false;
     els.avatarCanvas.hidden = true;
+    els.avatarLoader.hidden = true;
     return;
   }
   els.orb.hidden = true;
   els.avatarCanvas.hidden = false;
-  if (state.loadedAvatarUrl === url) return;
+  if (state.loadedAvatarUrl === url) {
+    els.avatarLoader.hidden = true;
+    return;
+  }
+  els.avatarLoader.textContent = "Cargando avatar…";
   els.avatarLoader.hidden = false;
   try {
     const av = ensureAvatar();
     await av.loadAvatar(url);
     state.loadedAvatarUrl = url;
+    els.avatarLoader.hidden = true;
+    console.log("[app] avatar loaded OK");
   } catch (err) {
-    console.error("avatar load failed", err);
+    console.error("[app] avatar load failed", err);
+    els.avatarLoader.textContent = "No se pudo cargar el avatar (" + (err && err.message ? err.message : "error") + ")";
+    els.avatarLoader.hidden = false;
     els.orb.hidden = false;
     els.avatarCanvas.hidden = true;
-  } finally {
-    els.avatarLoader.hidden = true;
   }
 }
 

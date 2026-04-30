@@ -132,12 +132,49 @@ class Avatar3D {
       }
     });
 
-    // Encuadre: el avatar de RPM viene de pie. Lo subimos para que la cámara enfoque la cabeza.
-    root.position.set(0, -1.5, 0);
     this.avatarRoot = root;
     this.scene.add(root);
 
+    // Auto-encuadre: calculamos el bounding box del avatar y posicionamos
+    // la cámara para enmarcar la cabeza/torso, sin importar la escala/origen.
+    this._frameHead(root);
+
     return root;
+  }
+
+  _frameHead(root) {
+    // Asegurar que las matrices están calculadas
+    root.updateMatrixWorld(true);
+
+    const box = new THREE.Box3().setFromObject(root);
+    const size = new THREE.Vector3();
+    const center = new THREE.Vector3();
+    box.getSize(size);
+    box.getCenter(center);
+
+    // El "alto" del avatar (Y). Si es 0 (caso raro), salimos.
+    const height = size.y || 1;
+
+    // Punto objetivo: aproximadamente la cabeza (90% de la altura desde el suelo)
+    const headY = box.min.y + height * 0.92;
+    const headTarget = new THREE.Vector3(center.x, headY, center.z);
+
+    // Distancia de la cámara para que la cabeza ocupe ~40% de la vista
+    const fovRad = (this.camera.fov * Math.PI) / 180;
+    const headSize = height * 0.18; // tamaño aproximado de cabeza+cuello
+    const distance = (headSize / Math.tan(fovRad / 2)) * 1.4;
+
+    this.camera.position.set(headTarget.x, headTarget.y, headTarget.z + distance);
+    this.camera.lookAt(headTarget);
+    this.camera.near = Math.max(0.01, distance / 100);
+    this.camera.far = distance * 100;
+    this.camera.updateProjectionMatrix();
+
+    console.log("[avatar] framed", {
+      bbox: { min: box.min.toArray(), max: box.max.toArray() },
+      target: headTarget.toArray(),
+      distance,
+    });
   }
 
   _withRpmParams(url) {
