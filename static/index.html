@@ -13,7 +13,7 @@
   <link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
   <link rel="icon" type="image/png" sizes="32x32" href="/static/favicon-32.png">
   <link rel="icon" type="image/png" sizes="192x192" href="/static/icon-192.png">
-  <link rel="stylesheet" href="/static/styles.css?v=11">
+  <link rel="stylesheet" href="/static/styles.css?v=12">
 </head>
 <body>
   <main id="app">
@@ -81,11 +81,8 @@
         <button id="endBtn" class="end-btn" hidden>Terminar</button>
       </header>
 
-      <div class="avatar-wrap">
-        <canvas id="avatarCanvas" class="avatar-canvas"></canvas>
-        <div id="orb" class="orb idle" hidden></div>
-        <div id="avatarLoader" class="avatar-loader" hidden>Cargando avatar…</div>
-        <pre id="avatarDebug" class="avatar-debug" hidden></pre>
+      <div class="orb-wrap">
+        <div id="orb" class="orb idle"></div>
       </div>
 
       <div id="transcript" class="transcript"></div>
@@ -96,15 +93,7 @@
     </section>
   </main>
 
-  <script type="importmap">
-  {
-    "imports": {
-      "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
-      "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
-    }
-  }
-  </script>
-  <script type="module" src="/static/app.js?v=11"></script>
+  <script type="module" src="/static/app.js?v=12"></script>
   <script>
     if ("serviceWorker" in navigator) {
       window.addEventListener("load", () => {

@@ -72,10 +72,6 @@ def kid_prompt(name: str) -> str:
     )
 
 
-# URLs de los avatares 3D Ready Player Me (configurables por env, sin redeploy)
-AVATAR_PEACE_URL = os.getenv("AVATAR_PEACE_URL", "/static/avatars/peace.glb")
-AVATAR_MIA_URL = os.getenv("AVATAR_MIA_URL", "")  # Mia es la misma para Lucía y Leyre
-
 MODES = {
     "peace": {
         "label": "Peace",
@@ -84,7 +80,6 @@ MODES = {
         "voice": "coral",
         "is_kid": False,
         "color": "#5B7FFF",
-        "avatar_url": AVATAR_PEACE_URL,
         "level": "B2-C1",
         "explanation_lang": "en",  # explicaciones de gramática en inglés
         "student_name": "Pablo",
@@ -96,7 +91,6 @@ MODES = {
         "voice": "sage",
         "is_kid": True,
         "color": "#FF6FA0",
-        "avatar_url": AVATAR_MIA_URL,
         "level": "A2-B1",
         "explanation_lang": "es",  # explicaciones en español
         "student_name": "Lucía",
@@ -108,7 +102,6 @@ MODES = {
         "voice": "sage",
         "is_kid": True,
         "color": "#9B6FFF",
-        "avatar_url": AVATAR_MIA_URL,
         "level": "A2-B1",
         "explanation_lang": "es",
         "student_name": "Leyre",
@@ -691,7 +684,6 @@ async def list_modes():
             "label": v["label"],
             "subtitle": v["subtitle"],
             "color": v["color"],
-            "avatar_url": v.get("avatar_url", ""),
         }
         for k, v in MODES.items()
     ]

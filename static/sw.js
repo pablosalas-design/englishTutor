@@ -1,19 +1,18 @@
-const CACHE_NAME = "tutor-shell-v8";
+const CACHE_NAME = "tutor-shell-v9";
 
 // Recursos del "shell" que pre-cacheamos en el install (para que la app abra offline).
 const SHELL = [
   "/",
   "/static/styles.css",
   "/static/app.js",
-  "/static/avatar.js",
   "/static/icon-192.png",
   "/static/icon-512.png",
   "/static/apple-touch-icon.png",
   "/static/manifest.webmanifest"
 ];
 
-// Assets que cambian raramente y son grandes: cache-first (modelos 3D, imágenes).
-const HEAVY_ASSET_RE = /\.(glb|gltf|png|jpg|jpeg|webp|svg|woff2?)$/i;
+// Assets que cambian raramente y son grandes: cache-first (imágenes/fuentes).
+const HEAVY_ASSET_RE = /\.(png|jpg|jpeg|webp|svg|woff2?)$/i;
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
@@ -41,7 +40,7 @@ self.addEventListener("fetch", (event) => {
   if (url.pathname.startsWith("/api/") || url.pathname.startsWith("/ws") || url.pathname === "/session") {
     return;
   }
-  // No tocar peticiones a otros orígenes (Three.js CDN, OpenAI, etc.)
+  // No tocar peticiones a otros orígenes (OpenAI, etc.)
   if (url.origin !== self.location.origin) return;
 
   // Estrategia para assets pesados (modelos, imágenes): cache-first.

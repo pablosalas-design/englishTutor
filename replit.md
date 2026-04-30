@@ -58,7 +58,9 @@ Flow: persona picker → activity picker (`Hablar` / `Gramática`) → voice scr
 
 #### Static assets cache
 
-Bumped query string `?v=11` on `app.js` and `styles.css`; service worker cache is `tutor-shell-v8`. After deploying, do a hard refresh (or close/reopen the PWA) so the new SW activates.
+Query string `?v=12` on `app.js` and `styles.css`; service worker cache is `tutor-shell-v9`. After deploying, do a hard refresh (or close/reopen the PWA) so the new SW activates.
+
+The voice screen uses only the animated orb (`#orb`). The previous 3D avatar system (Ready Player Me / `.glb` model, three.js, `avatar.js`, `AVATAR_*` env vars) was fully removed.
 
 ### Pending improvements (roadmap)
 

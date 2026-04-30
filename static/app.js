@@ -1,5 +1,3 @@
-import { getAvatar } from "/static/avatar.js?v=10";
-
 const REALTIME_MODEL = "gpt-4o-realtime-preview";
 
 const state = {
@@ -12,7 +10,6 @@ const state = {
   modes: [],
   pendingUserText: "",
   pendingAssistantText: "",
-  loadedAvatarUrl: null,
   lesson: null,
   exerciseIdx: 0,
   correctCount: 0,
@@ -25,8 +22,6 @@ const els = {
   convLabel: document.getElementById("convLabel"),
   convStatus: document.getElementById("convStatus"),
   orb: document.getElementById("orb"),
-  avatarCanvas: document.getElementById("avatarCanvas"),
-  avatarLoader: document.getElementById("avatarLoader"),
   transcript: document.getElementById("transcript"),
   backBtn: document.getElementById("backBtn"),
   endBtn: document.getElementById("endBtn"),
@@ -47,12 +42,6 @@ const els = {
   gramBackBtn: document.getElementById("gramBackBtn"),
 };
 
-let avatar = null;
-function ensureAvatar() {
-  if (!avatar) avatar = getAvatar(els.avatarCanvas);
-  return avatar;
-}
-
 // ---------- Boot ----------
 
 async function boot() {
@@ -68,7 +57,7 @@ function renderPicker() {
     card.className = "mode-card";
     card.style.setProperty("--mc-color", m.color);
     card.innerHTML = `
-      <div class="avatar">${initials(m.label)}</div>
+      <div class="initials">${initials(m.label)}</div>
       <div class="info">
         <div class="name">${m.label}</div>
         <div class="sub">${m.subtitle}</div>
@@ -128,9 +117,6 @@ async function startVoice(mode) {
   showScreen("conversation");
   setOrb("idle");
 
-  // Carga del avatar 3D si hay URL configurada (en paralelo a la conexión).
-  loadAvatarFor(mode);
-
   try {
     await connectRealtime(mode.id);
     els.convStatus.textContent = "En vivo";
@@ -140,39 +126,6 @@ async function startVoice(mode) {
     console.error(err);
     els.convStatus.textContent = "Error de conexión";
     addBubble("assistant", "No pude conectar con la profesora. Comprueba tu conexión y vuelve a intentarlo.");
-  }
-}
-
-async function loadAvatarFor(mode) {
-  const url = mode.avatar_url || "";
-  console.log("[app] loadAvatarFor", { mode: mode.id, url });
-  if (!url) {
-    // No hay avatar configurado: mostramos el orbe como respaldo
-    els.orb.hidden = false;
-    els.avatarCanvas.hidden = true;
-    els.avatarLoader.hidden = true;
-    return;
-  }
-  els.orb.hidden = true;
-  els.avatarCanvas.hidden = false;
-  if (state.loadedAvatarUrl === url) {
-    els.avatarLoader.hidden = true;
-    return;
-  }
-  els.avatarLoader.textContent = "Cargando avatar…";
-  els.avatarLoader.hidden = false;
-  try {
-    const av = ensureAvatar();
-    await av.loadAvatar(url);
-    state.loadedAvatarUrl = url;
-    els.avatarLoader.hidden = true;
-    console.log("[app] avatar loaded OK");
-  } catch (err) {
-    console.error("[app] avatar load failed", err);
-    els.avatarLoader.textContent = "No se pudo cargar el avatar (" + (err && err.message ? err.message : "error") + ")";
-    els.avatarLoader.hidden = false;
-    els.orb.hidden = false;
-    els.avatarCanvas.hidden = true;
   }
 }
 
@@ -197,14 +150,6 @@ async function connectRealtime(modeId) {
   state.audioEl = audioEl;
   pc.ontrack = (e) => {
     audioEl.srcObject = e.streams[0];
-    // Conectamos el mismo stream al avatar para sincronizar la boca con la voz
-    if (avatar) {
-      try {
-        avatar.attachAudioStream(e.streams[0]);
-      } catch (err) {
-        console.warn("avatar attach failed", err);
-      }
-    }
   };
 
   // Capturar micrófono
@@ -249,7 +194,6 @@ function endConversation() {
   els.muteBtn.classList.remove("muted");
   els.muteBtn.textContent = "🎙️ Silenciar";
   setOrb("idle");
-  if (avatar) avatar.detachAudio();
   showScreen(state.mode ? "subpicker" : "picker");
 }
 
