@@ -30,6 +30,14 @@ See the `pnpm-workspace` skill for workspace structure, TypeScript setup, and pa
 
 `bot.py` is a Telegram bot acting as an English tutor, powered by GPT-4o. Deployed on Railway from the GitHub repo `pablosalas-design/englishTutor`.
 
+### Users / personas
+
+- **Peace** (voice `coral`, adult tone) — used by **Pablo** (the project owner). B1→B2 level.
+- **Mia para Lucía** (voice `sage`, kid tone) — daughter Lucía, A2→B1.
+- **Mia para Leyre** (voice `sage`, kid tone) — daughter Leyre, A2→B1.
+
+There is no "wife" persona. Do not assume one.
+
 ### Pending improvements (roadmap)
 
 1. **Conversation memory** — let the bot remember recent messages so it can give more coherent corrections and contextual replies.
