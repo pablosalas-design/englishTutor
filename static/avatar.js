@@ -116,9 +116,26 @@ class Avatar3D {
     // Truco RPM: añadir parámetros para reducir peso del modelo y obtener morphs.
     const finalUrl = this._withRpmParams(url);
 
+    // Detener mixer anterior si lo había
+    if (this.mixer) {
+      this.mixer.stopAllAction();
+      this.mixer = null;
+    }
+
     const loader = new GLTFLoader();
     const gltf = await loader.loadAsync(finalUrl);
     const root = gltf.scene;
+
+    // Si el GLB trae animaciones (Avaturn "with animation"), las reproducimos.
+    if (gltf.animations && gltf.animations.length > 0) {
+      this.mixer = new THREE.AnimationMixer(root);
+      // Ejecutar todas las animaciones que vengan (típicamente solo una de idle)
+      for (const clip of gltf.animations) {
+        const action = this.mixer.clipAction(clip);
+        action.play();
+      }
+      console.log("[avatar] playing", gltf.animations.length, "animation(s)");
+    }
     const allMorphNames = new Set();
     const allBoneNames = [];
     const armBones = [];
@@ -155,10 +172,12 @@ class Avatar3D {
       }
     });
 
-    // Bajar brazos: rotar ~70° desde la T-pose hacia abajo en el eje Z local
-    for (const { bone, side } of armBones) {
-      const angle = side === "L" ? 1.25 : -1.25; // ~72°
-      bone.rotation.z += angle;
+    // Bajar brazos solo si el GLB no trae animación (el "with animation" ya viene en pose natural)
+    if (!this.mixer) {
+      for (const { bone, side } of armBones) {
+        const angle = side === "L" ? 1.25 : -1.25; // ~72°
+        bone.rotation.z += angle;
+      }
     }
 
     console.log("[avatar] morphs found:", [...allMorphNames]);
@@ -338,8 +357,8 @@ class Avatar3D {
   }
 
   _updateIdle(elapsed) {
-    if (!this.headBone) return;
-    // Sutil balanceo de la cabeza
+    // Solo balanceamos la cabeza manualmente si no hay animación incrustada
+    if (this.mixer || !this.headBone) return;
     this.headBone.rotation.y = Math.sin(elapsed * 0.6) * 0.05;
     this.headBone.rotation.x = Math.sin(elapsed * 0.4) * 0.02;
   }
@@ -349,7 +368,11 @@ class Avatar3D {
     requestAnimationFrame(this._loop);
 
     const now = performance.now();
-    const elapsed = this._clock.getElapsedTime();
+    const delta = this._clock.getDelta();
+    const elapsed = this._clock.elapsedTime;
+
+    // Animación incrustada (idle del Avaturn "with animation")
+    if (this.mixer) this.mixer.update(delta);
 
     // Lipsync
     const level = this._readAudioLevel();
@@ -357,7 +380,7 @@ class Avatar3D {
     this.currentMouth += (this.targetMouth - this.currentMouth) * 0.45;
     this._applyMouth(this.currentMouth);
 
-    // Blink + idle
+    // Blink + idle (manual solo si no hay mixer)
     this._updateBlink(now);
     this._updateIdle(elapsed);
 

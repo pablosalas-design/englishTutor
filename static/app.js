@@ -1,4 +1,4 @@
-import { getAvatar } from "/static/avatar.js?v=8";
+import { getAvatar } from "/static/avatar.js?v=9";
 
 const REALTIME_MODEL = "gpt-4o-realtime-preview";
 
