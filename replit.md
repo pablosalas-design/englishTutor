@@ -49,6 +49,7 @@ Flow: persona picker → activity picker (`Hablar` / `Gramática`) → voice scr
 - `GET /api/grammar/today?mode={peace|lucia|leyre}` returns today's lesson (cached per UTC day per `chat_id`). If none exists, calls GPT-4o (JSON mode) using:
   - persona level (`peace`=B2-C1 / kids=A2-B1) and explanation language (`peace`=en / kids=es)
   - the user's last 60 messages from the shared `messages` table (to detect weak areas)
+  - the **per-level curriculum** in `LEVEL_CURRICULUM` (`B2-C1` and `A2-B1` lists in `webapp.py`) — the model is forced to pick one of those topic slugs. Editable in one place without touching anything else.
   - the last 20 lesson topics for that profile (to avoid repetition)
 - Returns: `{topic, title, explanation, examples[{en,translation}], exercises[3 mc + 2 fill]}`. The generator validates the JSON shape and retries once if invalid.
 - `POST /api/grammar/attempt` re-evaluates correctness on the server (does not trust the client's verdict), checks that the lesson belongs to the caller's profile, and records the attempt in `grammar_attempts`.

@@ -359,14 +359,19 @@ Inputs you will receive:
 - explanation_lang ("es" or "en"): the language used for the lesson explanation and feedback
 - native_lang: always "es" (the student's mother tongue)
 - recent_user_lines: things the student has recently said in conversation (may contain mistakes)
+- available_topics: the OFFICIAL curriculum for this level — the only topics you may pick from
 - past_topics: grammar topics already covered (avoid repeating these)
 - tone: "warm" (kid) or "neutral" (adult)
 
 Your job:
-1. Pick ONE grammar topic appropriate for the student's level AND that the
-   recent_user_lines suggest is weak (recurring mistakes, avoidance, awkward phrasing).
-   If the lines are empty or no clear mistake, pick a useful topic for the level that is NOT in past_topics.
-2. Produce a focused, motivating mini-lesson.
+1. Pick ONE grammar topic. The "topic" field MUST be EXACTLY one of the slugs in available_topics.
+   Priority for choosing:
+     a) A topic from available_topics that the recent_user_lines suggest is weak
+        (recurring mistakes, avoidance, awkward phrasing) AND is not in past_topics.
+     b) Otherwise, any topic from available_topics that is not in past_topics.
+     c) Only if every topic in available_topics is already in past_topics, you may pick
+        the one that was covered longest ago.
+2. Produce a focused, motivating mini-lesson on that topic.
 
 Output STRICT JSON with this schema (no markdown, no extra text):
 {
@@ -408,6 +413,56 @@ Rules:
 - Each "fill" answer must be 1-3 words, unambiguous, and lowercase.
 - Never include the answer inside the question.
 """
+
+
+# Temario por nivel: el modelo SOLO puede elegir de esta lista.
+# Editable sin tocar nada más.
+LEVEL_CURRICULUM: dict[str, list[str]] = {
+    "B2-C1": [
+        "second_conditional",
+        "third_conditional",
+        "mixed_conditionals",
+        "reported_speech",
+        "passive_voice",
+        "modals_of_deduction_present",   # must/might/can't be
+        "modals_of_deduction_past",      # must/might/can't have + past participle
+        "relative_clauses_defining",
+        "relative_clauses_non_defining",
+        "gerunds_vs_infinitives",
+        "inversion_negative_adverbials", # hardly... when, no sooner, never have I...
+        "wish_if_only",
+        "used_to_be_used_to_get_used_to",
+        "causative_have_get",
+        "future_perfect",
+        "past_perfect_continuous",
+        "phrasal_verbs_separable",
+        "linkers_advanced",              # whereas, although, despite, however
+        "articles_advanced",
+        "comparison_advanced",           # the more... the more, far / much + comparative
+    ],
+    "A2-B1": [
+        "present_simple",
+        "present_continuous",
+        "present_simple_vs_continuous",
+        "past_simple_regular_irregular",
+        "past_continuous",
+        "present_perfect_basic",
+        "future_will_vs_going_to",
+        "comparatives_superlatives",
+        "modals_can_could",
+        "modals_must_should",
+        "prepositions_of_time",          # in / on / at
+        "prepositions_of_place",         # in / on / at / under / next to
+        "articles_a_an_the",
+        "countable_uncountable",
+        "some_any_much_many_a_lot_of",
+        "adverbs_of_frequency",
+        "there_is_there_are",
+        "possessive_s_vs_of",
+        "question_words",                # who/what/where/when/why/how
+        "linkers_basic",                 # and / but / or / because / so
+    ],
+}
 
 
 def utc_today() -> date:
@@ -464,6 +519,7 @@ def generate_lesson(chat_id: int, mode: str) -> dict:
     user_lines = fetch_user_lines(chat_id, limit=60)
     past_topics = fetch_past_lesson_topics(chat_id, limit=20)
     tone = "warm" if cfg["is_kid"] else "neutral"
+    available_topics = LEVEL_CURRICULUM.get(cfg["level"], [])
 
     user_payload = {
         "student_name": cfg["student_name"],
@@ -472,6 +528,7 @@ def generate_lesson(chat_id: int, mode: str) -> dict:
         "native_lang": "es",
         "tone": tone,
         "recent_user_lines": user_lines,
+        "available_topics": available_topics,
         "past_topics": past_topics,
     }
 
@@ -493,6 +550,8 @@ def generate_lesson(chat_id: int, mode: str) -> dict:
             continue
 
         ok, err = validate_lesson_payload(data)
+        if ok and available_topics and data["topic"] not in available_topics:
+            ok, err = False, f"topic '{data['topic']}' not in curriculum for {cfg['level']}"
         if ok:
             data["level"] = cfg["level"]
             data["lang"] = cfg["explanation_lang"]
