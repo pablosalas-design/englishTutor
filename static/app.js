@@ -93,11 +93,25 @@ function initials(label) {
 
 // ---------- Sub-picker (Hablar / Gramática) ----------
 
+// Plan por perfil para mostrar números reales en las tarjetas (debe coincidir con el backend).
+const SUBPICKER_COUNTS = {
+  peace:  { grammar: 10, vocabNew: 5, vocabRev: 10 },
+  lucia:  { grammar: 5,  vocabNew: 3, vocabRev: 6 },
+  leyre:  { grammar: 5,  vocabNew: 3, vocabRev: 6 },
+};
+
 function openSubpicker(mode) {
   state.mode = mode;
   els.subLabel.textContent = mode.label;
   els.app.style.setProperty("--mc-color", mode.color);
   document.documentElement.style.setProperty("--mc-color", mode.color);
+
+  const counts = SUBPICKER_COUNTS[mode.id] || SUBPICKER_COUNTS.peace;
+  const gramSub = els.actGrammar.querySelector(".act-sub");
+  if (gramSub) gramSub.textContent = `Lección del día + ${counts.grammar} ejercicios`;
+  const vocabSub = els.actVocab.querySelector(".act-sub");
+  if (vocabSub) vocabSub.textContent = `${counts.vocabNew} phrasal verbs nuevos + repaso del día`;
+
   showScreen("subpicker");
 }
 
