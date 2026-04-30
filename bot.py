@@ -132,7 +132,8 @@ DEFAULT_LEVEL = "B1"
 DEFAULT_GOAL = "B2"
 KIDS_LEVEL = ("A2", "B1")
 SHORT_HISTORY_TURNS = 12
-LONG_CONTEXT_DAYS = 7
+LONG_CONTEXT_DAYS = 30
+LONG_CONTEXT_MESSAGES = 80
 
 # In-memory short history for the current session (fast access)
 short_history: dict[int, deque] = defaultdict(lambda: deque(maxlen=SHORT_HISTORY_TURNS * 2))
@@ -245,6 +246,20 @@ def delete_chat_history(chat_id: int):
         cur.execute("DELETE FROM summaries WHERE chat_id = %s", (chat_id,))
 
 
+def fetch_all_summaries(chat_id: int, limit: int = 12) -> list[dict]:
+    """Resúmenes semanales pasados, del más antiguo al más reciente."""
+    with db_cursor() as cur:
+        cur.execute("""
+            SELECT week_start, summary_text
+            FROM summaries
+            WHERE chat_id = %s
+            ORDER BY week_start DESC
+            LIMIT %s
+        """, (chat_id, limit))
+        rows = [dict(r) for r in cur.fetchall()]
+    return list(reversed(rows))
+
+
 def list_active_chats(days: int = 7) -> list[int]:
     with db_cursor() as cur:
         cur.execute("""
@@ -277,22 +292,41 @@ def level_instruction(current: str, goal: str) -> str:
 
 
 def build_long_term_context(chat_id: int) -> str:
-    """Resumen de las últimas conversaciones (más allá de la sesión actual)."""
+    """Memoria larga: resúmenes semanales antiguos + transcripción de los últimos 30 días."""
+    sections: list[str] = []
+
+    summaries = fetch_all_summaries(chat_id)
+    if summaries:
+        summary_lines = []
+        for s in summaries:
+            summary_lines.append(
+                f"- Semana del {s['week_start'].isoformat()}: {s['summary_text']}"
+            )
+        sections.append(
+            "[MEMORIA A LARGO PLAZO - resúmenes de semanas anteriores, para que recuerdes "
+            "el progreso, los temas y los errores recurrentes del alumno a lo largo del tiempo]:\n"
+            + "\n".join(summary_lines)
+            + "\n[FIN DE LA MEMORIA A LARGO PLAZO]"
+        )
+
     rows = fetch_recent_messages(chat_id, LONG_CONTEXT_DAYS)
-    if not rows:
+    if rows:
+        recent = rows[-LONG_CONTEXT_MESSAGES:]
+        lines = []
+        for r in recent:
+            prefix = "Alumno" if r["role"] == "user" else "Profesora"
+            text = r["content"][:300]
+            lines.append(f"- {prefix}: {text}")
+        sections.append(
+            f"[CONTEXTO RECIENTE - últimos {LONG_CONTEXT_DAYS} días de conversación, "
+            "para que recuerdes lo que hablasteis]:\n"
+            + "\n".join(lines)
+            + "\n[FIN DEL CONTEXTO RECIENTE]"
+        )
+
+    if not sections:
         return ""
-    # Last ~50 messages, most recent first
-    recent = rows[-50:]
-    lines = []
-    for r in recent:
-        prefix = "Alumno" if r["role"] == "user" else "Profesora"
-        text = r["content"][:300]
-        lines.append(f"- {prefix}: {text}")
-    joined = "\n".join(lines)
-    return (
-        "\n\n[CONTEXTO DE CONVERSACIONES PASADAS - últimos 7 días, para que recuerdes lo que ya hablasteis]:\n"
-        f"{joined}\n[FIN DEL CONTEXTO PASADO]"
-    )
+    return "\n\n" + "\n\n".join(sections)
 
 
 def build_system_prompt(chat_id: int, config: dict) -> str:

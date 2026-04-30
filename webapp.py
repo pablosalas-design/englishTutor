@@ -21,7 +21,8 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 PORT = int(os.getenv("PORT", "5000"))
 
 REALTIME_MODEL = "gpt-4o-realtime-preview"
-LONG_CONTEXT_DAYS = 7
+LONG_CONTEXT_DAYS = 30
+LONG_CONTEXT_MESSAGES = 80
 
 # ----------------------------------------------------------------------------
 # Personas (deben coincidir con bot.py)
@@ -148,21 +149,56 @@ def store_message(chat_id: int, role: str, content: str, mode: str):
 # Prompt building
 # ----------------------------------------------------------------------------
 
+def fetch_all_summaries(chat_id: int, limit: int = 12) -> list[dict]:
+    with db_cursor() as cur:
+        cur.execute(
+            """
+            SELECT week_start, summary_text
+            FROM summaries
+            WHERE chat_id = %s
+            ORDER BY week_start DESC
+            LIMIT %s
+            """,
+            (chat_id, limit),
+        )
+        rows = [dict(r) for r in cur.fetchall()]
+    return list(reversed(rows))
+
+
 def build_long_term_context(chat_id: int) -> str:
+    sections: list[str] = []
+
+    summaries = fetch_all_summaries(chat_id)
+    if summaries:
+        summary_lines = [
+            f"- Week of {s['week_start'].isoformat()}: {s['summary_text']}"
+            for s in summaries
+        ]
+        sections.append(
+            "[LONG-TERM MEMORY - summaries of previous weeks, so you remember the "
+            "student's progress, recurring topics and mistakes over time]:\n"
+            + "\n".join(summary_lines)
+            + "\n[END OF LONG-TERM MEMORY]"
+        )
+
     rows = fetch_recent_messages(chat_id)
-    if not rows:
+    if rows:
+        recent = rows[-LONG_CONTEXT_MESSAGES:]
+        lines = []
+        for r in recent:
+            prefix = "Student" if r["role"] == "user" else "Teacher"
+            text = (r["content"] or "")[:300]
+            lines.append(f"- {prefix}: {text}")
+        sections.append(
+            f"[RECENT CONTEXT - last {LONG_CONTEXT_DAYS} days of conversation, "
+            "so you remember what you've already talked about]:\n"
+            + "\n".join(lines)
+            + "\n[END OF RECENT CONTEXT]"
+        )
+
+    if not sections:
         return ""
-    recent = rows[-50:]
-    lines = []
-    for r in recent:
-        prefix = "Student" if r["role"] == "user" else "Teacher"
-        text = (r["content"] or "")[:300]
-        lines.append(f"- {prefix}: {text}")
-    joined = "\n".join(lines)
-    return (
-        "\n\n[CONTEXT FROM PAST CONVERSATIONS - last 7 days, so you remember what you've already talked about]:\n"
-        f"{joined}\n[END OF PAST CONTEXT]"
-    )
+    return "\n\n" + "\n\n".join(sections)
 
 
 def build_instructions(mode: str) -> str:
