@@ -419,48 +419,93 @@ Rules:
 # Editable sin tocar nada más.
 LEVEL_CURRICULUM: dict[str, list[str]] = {
     "B2-C1": [
+        # Conditionals
         "second_conditional",
         "third_conditional",
         "mixed_conditionals",
+        "conditionals_unless_provided_as_long_as",   # unless / provided that / as long as
+        # Reported speech / passive
         "reported_speech",
+        "indirect_questions",                        # Could you tell me where...
         "passive_voice",
-        "modals_of_deduction_present",   # must/might/can't be
-        "modals_of_deduction_past",      # must/might/can't have + past participle
+        # Modals
+        "modals_of_deduction_present",               # must / might / can't be
+        "modals_of_deduction_past",                  # must / might / can't have + past participle
+        # Relatives
         "relative_clauses_defining",
         "relative_clauses_non_defining",
+        "reduced_relative_clauses",                  # the man sitting there / the book written by...
+        # Verb patterns
         "gerunds_vs_infinitives",
-        "inversion_negative_adverbials", # hardly... when, no sooner, never have I...
+        "subjunctive_suggest_recommend_insist",      # I suggest (that) he be / go...
+        # Emphasis & inversion
+        "inversion_negative_adverbials",             # hardly... when, no sooner, never have I...
+        "cleft_sentences",                           # It was X that..., What I need is...
+        "emphasis_do_does_did",                      # I do like it
+        # Wish, used to, causative
         "wish_if_only",
         "used_to_be_used_to_get_used_to",
         "causative_have_get",
+        # Tenses
+        "future_continuous",                         # I'll be working at 5pm
         "future_perfect",
         "past_perfect_continuous",
+        # Phrasal verbs / linkers / quantifiers
         "phrasal_verbs_separable",
-        "linkers_advanced",              # whereas, although, despite, however
+        "linkers_advanced",                          # whereas, although, despite, however
+        "linkers_purpose_result",                    # so that, in order to, such... that, so... that
+        "so_such_too_enough",
+        "question_tags",
+        # Other
+        "participle_clauses",                        # Walking home, I saw...
         "articles_advanced",
-        "comparison_advanced",           # the more... the more, far / much + comparative
+        "comparison_advanced",                       # the more... the more, far/much + comparative
     ],
     "A2-B1": [
+        # Present
         "present_simple",
         "present_continuous",
         "present_simple_vs_continuous",
+        "have_got",                                  # I've got a sister
+        # Past
         "past_simple_regular_irregular",
         "past_continuous",
+        "used_to_past_habits",                       # I used to play football
+        "past_perfect_basic",                        # I had finished when...
+        # Present perfect
         "present_perfect_basic",
+        # Future & conditionals
         "future_will_vs_going_to",
-        "comparatives_superlatives",
+        "zero_conditional",                          # If you heat water, it boils
+        "first_conditional",                         # If it rains, I will stay
+        "time_conjunctions_when_while_before_after", # when / while / before / after / until
+        # Modals
         "modals_can_could",
         "modals_must_should",
-        "prepositions_of_time",          # in / on / at
-        "prepositions_of_place",         # in / on / at / under / next to
+        "have_to_dont_have_to",                      # obligation / no obligation
+        # Quantifiers / articles
+        "comparatives_superlatives",
         "articles_a_an_the",
         "countable_uncountable",
         "some_any_much_many_a_lot_of",
+        "both_either_neither",
+        # Prepositions
+        "prepositions_of_time",                      # in / on / at
+        "prepositions_of_place",                     # in / on / at / under / next to
+        "prepositions_of_movement",                  # to / into / out of / through / across
+        # Pronouns & possessives
+        "object_pronouns",                           # me / him / her / them
+        "possessive_adjectives_vs_pronouns",         # my vs mine
+        "reflexive_pronouns",                        # myself, yourself...
+        "demonstratives_this_that_these_those",
+        "possessive_s_vs_of",
+        # Other
         "adverbs_of_frequency",
         "there_is_there_are",
-        "possessive_s_vs_of",
-        "question_words",                # who/what/where/when/why/how
-        "linkers_basic",                 # and / but / or / because / so
+        "question_words",                            # who / what / where / when / why / how
+        "linkers_basic",                             # and / but / or / because / so
+        "so_neither_agreement",                      # me too / me neither / so do I / neither do I
+        "like_love_hate_ing",                        # I love swimming
     ],
 }
 
