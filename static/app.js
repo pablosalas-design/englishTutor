@@ -487,15 +487,46 @@ function renderResult() {
       <div class="label">${label}</div>
       <div class="actions">
         <button class="gram-cta" id="speakBtn">Hablar de esto con ${escapeHtml(state.mode.label)}</button>
-        <button class="gram-cta secondary" id="reviewBtn">Volver a ver la lección</button>
+        <button class="gram-cta secondary" id="repeatBtn">Repetir con ejercicios nuevos</button>
         <button class="gram-cta secondary" id="doneBtn">Terminar</button>
       </div>
     </div>
   `;
   document.getElementById("speakBtn").addEventListener("click", () => startVoice(state.mode));
-  document.getElementById("reviewBtn").addEventListener("click", () => renderLessonIntro());
+  document.getElementById("repeatBtn").addEventListener("click", repeatWithNewExercises);
   document.getElementById("doneBtn").addEventListener("click", () => showScreen("subpicker"));
   els.grammarBody.scrollTop = 0;
+}
+
+async function repeatWithNewExercises() {
+  if (!state.lesson || !state.mode) return;
+  const lessonId = state.lesson.lesson_id;
+  els.grammarBody.innerHTML = '<div class="grammar-loading">Generando ejercicios nuevos…</div>';
+  els.grammarBody.scrollTop = 0;
+  try {
+    const r = await fetch(`/api/grammar/regenerate?mode=${encodeURIComponent(state.mode.id)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ lesson_id: lessonId }),
+    });
+    if (!r.ok) {
+      const txt = await r.text();
+      throw new Error(`HTTP ${r.status}: ${txt.slice(0, 200)}`);
+    }
+    const lesson = await r.json();
+    state.lesson = lesson;
+    state.exerciseIdx = 0;
+    state.correctCount = 0;
+    renderExercise();
+  } catch (err) {
+    console.error("[grammar] regenerate failed", err);
+    els.grammarBody.innerHTML = `
+      <div class="grammar-loading">
+        No se pudieron generar ejercicios nuevos.<br><br>
+        <button class="gram-cta secondary" id="backResultBtn">Volver</button>
+      </div>`;
+    document.getElementById("backResultBtn").addEventListener("click", renderResult);
+  }
 }
 
 function escapeHtml(s) {

@@ -51,14 +51,18 @@ Flow: persona picker → activity picker (`Hablar` / `Gramática`) → voice scr
   - the user's last 60 messages from the shared `messages` table (to detect weak areas)
   - the **per-level curriculum** in `LEVEL_CURRICULUM` (`B2-C1` and `A2-B1` lists in `webapp.py`) — the model is forced to pick one of those topic slugs. Editable in one place without touching anything else.
   - the last 20 lesson topics for that profile (to avoid repetition)
-- Returns: `{topic, title, explanation, examples[{en,translation}], exercises[3 mc + 2 fill]}`. The generator validates the JSON shape and retries once if invalid.
+- Returns: `{topic, title, explanation, examples[{en,translation}], exercises[mc..., fill...]}`. The generator validates the JSON shape against the per-profile plan and retries once if invalid.
+- Per-profile exercise plan (`EXERCISE_PLAN_BY_MODE` in `webapp.py`):
+  - `peace` → 10 exercises (6 mc + 4 fill)
+  - `lucia`, `leyre` → 5 exercises (3 mc + 2 fill)
 - `POST /api/grammar/attempt` re-evaluates correctness on the server (does not trust the client's verdict), checks that the lesson belongs to the caller's profile, and records the attempt in `grammar_attempts`.
+- `POST /api/grammar/regenerate` regenerates ONLY the exercises for an existing lesson (same topic/explanation, fresh content). Validates lesson ownership, replaces `exercises` in DB, deletes old `grammar_attempts` for that `lesson_id`. Driven by `REGEN_EXERCISES_SYSTEM_PROMPT` and `regenerate_exercises_for_lesson()`. Used by the result screen's "Repetir con ejercicios nuevos" button.
 - DB tables: `grammar_lessons` (UNIQUE `chat_id`+`lesson_date`) and `grammar_attempts`.
 - `web_chat_id` mapping: `peace=-1001`, `lucia=-1002`, `leyre=-1003`.
 
 #### Static assets cache
 
-Query string `?v=12` on `app.js` and `styles.css`; service worker cache is `tutor-shell-v9`. After deploying, do a hard refresh (or close/reopen the PWA) so the new SW activates.
+Query string `?v=13` on `app.js` and `styles.css`; service worker cache is `tutor-shell-v10`. After deploying, do a hard refresh (or close/reopen the PWA) so the new SW activates.
 
 The voice screen uses only the animated orb (`#orb`). The previous 3D avatar system (Ready Player Me / `.glb` model, three.js, `avatar.js`, `AVATAR_*` env vars) was fully removed.
 

@@ -355,6 +355,7 @@ Inputs you will receive:
 - available_topics: the OFFICIAL curriculum for this level — the only topics you may pick from
 - past_topics: grammar topics already covered (avoid repeating these)
 - tone: "warm" (kid) or "neutral" (adult)
+- exercise_plan: { "num_mc": N, "num_fill": M, "total": N+M } — how many exercises to produce
 
 Your job:
 1. Pick ONE grammar topic. The "topic" field MUST be EXACTLY one of the slugs in available_topics.
@@ -378,7 +379,8 @@ Output STRICT JSON with this schema (no markdown, no extra text):
     ... 3 examples total
   ],
   "exercises": [
-    // EXACTLY 5 exercises in this order: 3 multiple choice, then 2 fill-in-the-blank.
+    // EXACTLY exercise_plan.total exercises in this order:
+    // first exercise_plan.num_mc multiple choice, then exercise_plan.num_fill fill-in-the-blank.
     {
       "type": "mc",
       "question": "<English sentence with ___ where the answer goes, OR a question>",
@@ -386,7 +388,7 @@ Output STRICT JSON with this schema (no markdown, no extra text):
       "correct": "<one of the options, EXACT text>",
       "explanation": "<brief feedback in explanation_lang>"
     },
-    ... two more "mc" ...
+    ... more "mc" up to num_mc ...
     {
       "type": "fill",
       "question": "<English sentence with ___ where the answer goes>",
@@ -394,7 +396,7 @@ Output STRICT JSON with this schema (no markdown, no extra text):
       "accept": ["<optional alternative spellings or contractions, lowercase>"],
       "explanation": "<brief feedback in explanation_lang>"
     },
-    ... one more "fill" ...
+    ... more "fill" up to num_fill ...
   ]
 }
 
@@ -405,6 +407,50 @@ Rules:
 - Difficulty must match the level.
 - Each "fill" answer must be 1-3 words, unambiguous, and lowercase.
 - Never include the answer inside the question.
+- Vary the exercises so they all test the same topic from different angles.
+"""
+
+
+REGEN_EXERCISES_SYSTEM_PROMPT = """You are an expert English grammar coach.
+The student has just finished a grammar lesson and wants to practise the SAME topic
+again with a NEW set of exercises.
+
+Inputs:
+- topic, title, explanation, level, explanation_lang, native_lang, tone
+- previous_exercises: the exercises the student already saw (DO NOT repeat them
+  — change the sentences, vocabulary and contexts).
+- exercise_plan: { "num_mc": N, "num_fill": M, "total": N+M }
+
+Output STRICT JSON with this schema (no markdown, no extra text):
+{
+  "exercises": [
+    // EXACTLY exercise_plan.total exercises in this order:
+    // first exercise_plan.num_mc multiple choice, then exercise_plan.num_fill fill-in-the-blank.
+    {
+      "type": "mc",
+      "question": "<English sentence with ___ where the answer goes, OR a question>",
+      "options": ["<a>", "<b>", "<c>", "<d>"],
+      "correct": "<one of the options, EXACT text>",
+      "explanation": "<brief feedback in explanation_lang>"
+    },
+    {
+      "type": "fill",
+      "question": "<English sentence with ___ where the answer goes>",
+      "correct": "<the exact word(s) that fill the blank, lowercase, no punctuation>",
+      "accept": ["<optional alternative spellings or contractions, lowercase>"],
+      "explanation": "<brief feedback in explanation_lang>"
+    }
+  ]
+}
+
+Rules:
+- Exercises and example sentences are in ENGLISH.
+- Feedback follows explanation_lang.
+- Difficulty must match the level.
+- Each "fill" answer must be 1-3 words, unambiguous, and lowercase.
+- Never include the answer inside the question.
+- The new exercises MUST be clearly different from previous_exercises (different sentences,
+  different contexts, different vocabulary). Same grammar topic, fresh content.
 """
 
 
@@ -507,29 +553,32 @@ def utc_today() -> date:
     return datetime.now(timezone.utc).date()
 
 
-def validate_lesson_payload(data: dict) -> tuple[bool, str]:
-    """Comprueba que la lección generada cumple el contrato. Devuelve (ok, error)."""
-    required_top = {"topic", "title", "explanation", "examples", "exercises"}
-    if not isinstance(data, dict) or not required_top.issubset(data):
-        return False, f"missing top-level keys: {required_top - set(data) if isinstance(data, dict) else 'not a dict'}"
-    if not (isinstance(data["topic"], str) and data["topic"].strip()):
-        return False, "topic empty"
-    if not (isinstance(data["title"], str) and data["title"].strip()):
-        return False, "title empty"
-    if not (isinstance(data["explanation"], str) and len(data["explanation"]) >= 30):
-        return False, "explanation too short"
-    examples = data.get("examples")
-    if not (isinstance(examples, list) and len(examples) >= 1):
-        return False, "examples missing"
-    for ex in examples:
-        if not isinstance(ex, dict) or "en" not in ex or "translation" not in ex:
-            return False, "example missing en/translation"
-    exs = data.get("exercises")
-    if not (isinstance(exs, list) and len(exs) == 5):
-        return False, f"need exactly 5 exercises, got {len(exs) if isinstance(exs, list) else 'n/a'}"
+# Ejercicios por perfil. Peace (adulto): 10 (6 mc + 4 fill).
+# Niñas (Lucía/Leyre): 5 (3 mc + 2 fill).
+EXERCISE_PLAN_BY_MODE: dict[str, dict[str, int]] = {
+    "peace":  {"num_mc": 6, "num_fill": 4},
+    "lucia":  {"num_mc": 3, "num_fill": 2},
+    "leyre":  {"num_mc": 3, "num_fill": 2},
+}
+
+
+def exercise_plan_for(mode: str) -> dict:
+    plan = EXERCISE_PLAN_BY_MODE.get(mode, {"num_mc": 3, "num_fill": 2})
+    return {**plan, "total": plan["num_mc"] + plan["num_fill"]}
+
+
+def expected_order(plan: dict) -> list[str]:
+    return ["mc"] * plan["num_mc"] + ["fill"] * plan["num_fill"]
+
+
+def validate_exercises_list(exs, plan: dict) -> tuple[bool, str]:
+    """Valida solo la lista de ejercicios contra el plan."""
+    expected = expected_order(plan)
+    if not (isinstance(exs, list) and len(exs) == plan["total"]):
+        return False, f"need exactly {plan['total']} exercises, got {len(exs) if isinstance(exs, list) else 'n/a'}"
     types = [e.get("type") for e in exs]
-    if types != ["mc", "mc", "mc", "fill", "fill"]:
-        return False, f"exercise order wrong: {types}"
+    if types != expected:
+        return False, f"exercise order wrong: got {types}, expected {expected}"
     for i, e in enumerate(exs):
         if "question" not in e or not isinstance(e["question"], str):
             return False, f"ex {i}: question missing"
@@ -549,6 +598,34 @@ def validate_lesson_payload(data: dict) -> tuple[bool, str]:
     return True, ""
 
 
+def validate_lesson_payload(data: dict, plan: dict) -> tuple[bool, str]:
+    """Comprueba que la lección generada cumple el contrato. Devuelve (ok, error)."""
+    required_top = {"topic", "title", "explanation", "examples", "exercises"}
+    if not isinstance(data, dict) or not required_top.issubset(data):
+        return False, f"missing top-level keys: {required_top - set(data) if isinstance(data, dict) else 'not a dict'}"
+    if not (isinstance(data["topic"], str) and data["topic"].strip()):
+        return False, "topic empty"
+    if not (isinstance(data["title"], str) and data["title"].strip()):
+        return False, "title empty"
+    if not (isinstance(data["explanation"], str) and len(data["explanation"]) >= 30):
+        return False, "explanation too short"
+    examples = data.get("examples")
+    if not (isinstance(examples, list) and len(examples) >= 1):
+        return False, "examples missing"
+    for ex in examples:
+        if not isinstance(ex, dict) or "en" not in ex or "translation" not in ex:
+            return False, "example missing en/translation"
+    return validate_exercises_list(data.get("exercises"), plan)
+
+
+def normalize_fill_answers(exs: list) -> None:
+    """Normaliza las respuestas de tipo fill in-place para comparación robusta."""
+    for e in exs:
+        if e.get("type") == "fill":
+            e["correct"] = str(e.get("correct", "")).strip().lower()
+            e["accept"] = [str(a).strip().lower() for a in e.get("accept", []) if isinstance(a, str)]
+
+
 def generate_lesson(chat_id: int, mode: str) -> dict:
     if not openai_client:
         raise HTTPException(status_code=500, detail="Falta OPENAI_API_KEY")
@@ -558,6 +635,7 @@ def generate_lesson(chat_id: int, mode: str) -> dict:
     past_topics = fetch_past_lesson_topics(chat_id, limit=20)
     tone = "warm" if cfg["is_kid"] else "neutral"
     available_topics = LEVEL_CURRICULUM.get(cfg["level"], [])
+    plan = exercise_plan_for(mode)
 
     user_payload = {
         "student_name": cfg["student_name"],
@@ -568,6 +646,7 @@ def generate_lesson(chat_id: int, mode: str) -> dict:
         "recent_user_lines": user_lines,
         "available_topics": available_topics,
         "past_topics": past_topics,
+        "exercise_plan": plan,
     }
 
     last_error = ""
@@ -587,21 +666,105 @@ def generate_lesson(chat_id: int, mode: str) -> dict:
             last_error = f"JSON parse: {e}"
             continue
 
-        ok, err = validate_lesson_payload(data)
+        ok, err = validate_lesson_payload(data, plan)
         if ok and available_topics and data["topic"] not in available_topics:
             ok, err = False, f"topic '{data['topic']}' not in curriculum for {cfg['level']}"
         if ok:
             data["level"] = cfg["level"]
             data["lang"] = cfg["explanation_lang"]
-            # Normalizar respuestas fill para comparación robusta
-            for e in data["exercises"]:
-                if e["type"] == "fill":
-                    e["correct"] = e["correct"].strip().lower()
-                    e["accept"] = [a.strip().lower() for a in e.get("accept", []) if isinstance(a, str)]
+            normalize_fill_answers(data["exercises"])
             return data
         last_error = err
 
     raise HTTPException(status_code=502, detail=f"Generated lesson invalid: {last_error}")
+
+
+def regenerate_exercises_for_lesson(chat_id: int, mode: str, lesson_id: int) -> dict:
+    """Genera un nuevo set de ejercicios para una lección existente (mismo tema).
+    Actualiza la fila en BD y borra los intentos anteriores para esa lección.
+    Devuelve la lección con los ejercicios nuevos."""
+    if not openai_client:
+        raise HTTPException(status_code=500, detail="Falta OPENAI_API_KEY")
+
+    cfg = MODES[mode]
+    plan = exercise_plan_for(mode)
+
+    with db_cursor() as cur:
+        cur.execute(
+            """
+            SELECT id, topic, level, lang, title, explanation, examples, exercises
+            FROM grammar_lessons
+            WHERE id = %s AND chat_id = %s
+            """,
+            (lesson_id, chat_id),
+        )
+        row = cur.fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Lección no encontrada para este perfil")
+
+    tone = "warm" if cfg["is_kid"] else "neutral"
+    user_payload = {
+        "topic": row["topic"],
+        "title": row["title"],
+        "explanation": row["explanation"],
+        "level": row["level"],
+        "explanation_lang": row["lang"],
+        "native_lang": "es",
+        "tone": tone,
+        "previous_exercises": row["exercises"],
+        "exercise_plan": plan,
+    }
+
+    last_error = ""
+    new_exercises = None
+    for attempt in range(2):
+        completion = openai_client.chat.completions.create(
+            model="gpt-4o",
+            response_format={"type": "json_object"},
+            temperature=0.85 if attempt == 0 else 0.6,
+            messages=[
+                {"role": "system", "content": REGEN_EXERCISES_SYSTEM_PROMPT},
+                {"role": "user", "content": json.dumps(user_payload, ensure_ascii=False)},
+            ],
+        )
+        try:
+            data = json.loads(completion.choices[0].message.content)
+        except Exception as e:
+            last_error = f"JSON parse: {e}"
+            continue
+        exs = data.get("exercises") if isinstance(data, dict) else None
+        ok, err = validate_exercises_list(exs, plan)
+        if ok:
+            new_exercises = exs
+            break
+        last_error = err
+
+    if new_exercises is None:
+        raise HTTPException(status_code=502, detail=f"Regenerated exercises invalid: {last_error}")
+
+    normalize_fill_answers(new_exercises)
+
+    with db_cursor() as cur:
+        cur.execute(
+            "UPDATE grammar_lessons SET exercises = %s WHERE id = %s AND chat_id = %s",
+            (json.dumps(new_exercises), lesson_id, chat_id),
+        )
+        # Reseteamos los intentos de esta lección para que el "repetir" sea limpio.
+        cur.execute(
+            "DELETE FROM grammar_attempts WHERE lesson_id = %s AND chat_id = %s",
+            (lesson_id, chat_id),
+        )
+
+    return {
+        "lesson_id": lesson_id,
+        "topic": row["topic"],
+        "level": row["level"],
+        "lang": row["lang"],
+        "title": row["title"],
+        "explanation": row["explanation"],
+        "examples": row["examples"],
+        "exercises": new_exercises,
+    }
 
 
 def get_or_create_today_lesson(chat_id: int, mode: str) -> dict:
@@ -756,6 +919,10 @@ class AttemptItem(BaseModel):
     user_answer: str | None = None
 
 
+class RegenerateItem(BaseModel):
+    lesson_id: int
+
+
 @app.get("/api/grammar/today")
 async def grammar_today(mode: str):
     if mode not in MODES:
@@ -804,6 +971,20 @@ async def grammar_attempt(mode: str, item: AttemptItem):
             (chat_id, item.lesson_id, item.exercise_index, item.user_answer, is_correct),
         )
     return {"ok": True, "is_correct": is_correct}
+
+
+@app.post("/api/grammar/regenerate")
+async def grammar_regenerate(mode: str, item: RegenerateItem):
+    """Regenera el set de ejercicios de una lección (mismo tema, ejercicios nuevos)."""
+    if mode not in MODES:
+        raise HTTPException(status_code=400, detail="Modo desconocido")
+    chat_id = web_chat_id(mode)
+    try:
+        return regenerate_exercises_for_lesson(chat_id, mode, item.lesson_id)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"No se pudieron regenerar los ejercicios: {e}")
 
 
 # Servir estáticos al final para que las rutas API tengan prioridad
