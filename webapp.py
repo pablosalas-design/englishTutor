@@ -62,6 +62,10 @@ def kid_prompt(name: str) -> str:
     )
 
 
+# URLs de los avatares 3D Ready Player Me (configurables por env, sin redeploy)
+AVATAR_PEACE_URL = os.getenv("AVATAR_PEACE_URL", "")
+AVATAR_MIA_URL = os.getenv("AVATAR_MIA_URL", "")  # Mia es la misma para Lucía y Leyre
+
 MODES = {
     "peace": {
         "label": "Peace",
@@ -70,6 +74,7 @@ MODES = {
         "voice": "alloy",
         "is_kid": False,
         "color": "#5B7FFF",
+        "avatar_url": AVATAR_PEACE_URL,
     },
     "lucia": {
         "label": "Mia para Lucía",
@@ -78,6 +83,7 @@ MODES = {
         "voice": "shimmer",
         "is_kid": True,
         "color": "#FF6FA0",
+        "avatar_url": AVATAR_MIA_URL,
     },
     "leyre": {
         "label": "Mia para Leyre",
@@ -86,6 +92,7 @@ MODES = {
         "voice": "shimmer",
         "is_kid": True,
         "color": "#9B6FFF",
+        "avatar_url": AVATAR_MIA_URL,
     },
 }
 
@@ -246,7 +253,13 @@ async def service_worker():
 @app.get("/api/modes")
 async def list_modes():
     return [
-        {"id": k, "label": v["label"], "subtitle": v["subtitle"], "color": v["color"]}
+        {
+            "id": k,
+            "label": v["label"],
+            "subtitle": v["subtitle"],
+            "color": v["color"],
+            "avatar_url": v.get("avatar_url", ""),
+        }
         for k, v in MODES.items()
     ]
 

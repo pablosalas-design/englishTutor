@@ -36,8 +36,10 @@
         <button id="endBtn" class="end-btn" hidden>Terminar</button>
       </header>
 
-      <div class="orb-wrap">
-        <div id="orb" class="orb idle"></div>
+      <div class="avatar-wrap">
+        <canvas id="avatarCanvas" class="avatar-canvas"></canvas>
+        <div id="orb" class="orb idle" hidden></div>
+        <div id="avatarLoader" class="avatar-loader" hidden>Cargando avatar…</div>
       </div>
 
       <div id="transcript" class="transcript"></div>
@@ -48,7 +50,15 @@
     </section>
   </main>
 
-  <script src="/static/app.js"></script>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+      "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+    }
+  }
+  </script>
+  <script type="module" src="/static/app.js"></script>
   <script>
     if ("serviceWorker" in navigator) {
       window.addEventListener("load", () => {

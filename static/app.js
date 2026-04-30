@@ -1,3 +1,5 @@
+import { getAvatar } from "/static/avatar.js";
+
 const REALTIME_MODEL = "gpt-4o-realtime-preview";
 
 const state = {
@@ -10,6 +12,7 @@ const state = {
   modes: [],
   pendingUserText: "",
   pendingAssistantText: "",
+  loadedAvatarUrl: null,
 };
 
 const els = {
@@ -19,12 +22,20 @@ const els = {
   convLabel: document.getElementById("convLabel"),
   convStatus: document.getElementById("convStatus"),
   orb: document.getElementById("orb"),
+  avatarCanvas: document.getElementById("avatarCanvas"),
+  avatarLoader: document.getElementById("avatarLoader"),
   transcript: document.getElementById("transcript"),
   backBtn: document.getElementById("backBtn"),
   endBtn: document.getElementById("endBtn"),
   muteBtn: document.getElementById("muteBtn"),
   app: document.getElementById("app"),
 };
+
+let avatar = null;
+function ensureAvatar() {
+  if (!avatar) avatar = getAvatar(els.avatarCanvas);
+  return avatar;
+}
 
 // ---------- Boot ----------
 
@@ -75,6 +86,9 @@ async function startConversation(mode) {
   showScreen("conversation");
   setOrb("idle");
 
+  // Carga del avatar 3D si hay URL configurada (en paralelo a la conexión).
+  loadAvatarFor(mode);
+
   try {
     await connectRealtime(mode.id);
     els.convStatus.textContent = "En vivo";
@@ -84,6 +98,31 @@ async function startConversation(mode) {
     console.error(err);
     els.convStatus.textContent = "Error de conexión";
     addBubble("assistant", "No pude conectar con la profesora. Comprueba tu conexión y vuelve a intentarlo.");
+  }
+}
+
+async function loadAvatarFor(mode) {
+  const url = mode.avatar_url || "";
+  if (!url) {
+    // No hay avatar configurado: mostramos el orbe como respaldo
+    els.orb.hidden = false;
+    els.avatarCanvas.hidden = true;
+    return;
+  }
+  els.orb.hidden = true;
+  els.avatarCanvas.hidden = false;
+  if (state.loadedAvatarUrl === url) return;
+  els.avatarLoader.hidden = false;
+  try {
+    const av = ensureAvatar();
+    await av.loadAvatar(url);
+    state.loadedAvatarUrl = url;
+  } catch (err) {
+    console.error("avatar load failed", err);
+    els.orb.hidden = false;
+    els.avatarCanvas.hidden = true;
+  } finally {
+    els.avatarLoader.hidden = true;
   }
 }
 
@@ -108,6 +147,14 @@ async function connectRealtime(modeId) {
   state.audioEl = audioEl;
   pc.ontrack = (e) => {
     audioEl.srcObject = e.streams[0];
+    // Conectamos el mismo stream al avatar para sincronizar la boca con la voz
+    if (avatar) {
+      try {
+        avatar.attachAudioStream(e.streams[0]);
+      } catch (err) {
+        console.warn("avatar attach failed", err);
+      }
+    }
   };
 
   // Capturar micrófono
@@ -152,6 +199,7 @@ function endConversation() {
   els.muteBtn.classList.remove("muted");
   els.muteBtn.textContent = "🎙️ Silenciar";
   setOrb("idle");
+  if (avatar) avatar.detachAudio();
   showScreen("picker");
 }
 

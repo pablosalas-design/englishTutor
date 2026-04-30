@@ -1,8 +1,9 @@
-const CACHE_NAME = "tutor-shell-v1";
+const CACHE_NAME = "tutor-shell-v2";
 const SHELL = [
   "/",
   "/static/styles.css",
   "/static/app.js",
+  "/static/avatar.js",
   "/static/icon-192.png",
   "/static/icon-512.png",
   "/static/apple-touch-icon.png",
