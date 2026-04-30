@@ -180,10 +180,21 @@ class Avatar3D {
       }
     }
 
-    console.log("[avatar] morphs found:", [...allMorphNames]);
-    console.log("[avatar] mouth/blink morphs matched:", this.morphMeshes.map(m => Object.keys(m.indices)));
-    console.log("[avatar] all bone names:", allBoneNames);
-    console.log("[avatar] arm bones rotated:", armBones.map(a => a.bone.name));
+    const debugInfo = {
+      animations: gltf.animations ? gltf.animations.length : 0,
+      morphs: [...allMorphNames],
+      mouthMatched: this.morphMeshes.map(m => Object.keys(m.indices)),
+      bones: allBoneNames,
+      armsRotated: armBones.map(a => a.bone.name),
+    };
+    console.log("[avatar] debug", debugInfo);
+    const dbgEl = document.getElementById("avatarDebug");
+    if (dbgEl) {
+      dbgEl.textContent = JSON.stringify(debugInfo, null, 2);
+      dbgEl.hidden = false;
+      // Permitir cerrar tocando el panel
+      dbgEl.onclick = () => { dbgEl.hidden = true; };
+    }
 
     this.avatarRoot = root;
     this.scene.add(root);

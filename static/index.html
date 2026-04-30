@@ -13,7 +13,7 @@
   <link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
   <link rel="icon" type="image/png" sizes="32x32" href="/static/favicon-32.png">
   <link rel="icon" type="image/png" sizes="192x192" href="/static/icon-192.png">
-  <link rel="stylesheet" href="/static/styles.css?v=9">
+  <link rel="stylesheet" href="/static/styles.css?v=10">
 </head>
 <body>
   <main id="app">
@@ -40,6 +40,7 @@
         <canvas id="avatarCanvas" class="avatar-canvas"></canvas>
         <div id="orb" class="orb idle" hidden></div>
         <div id="avatarLoader" class="avatar-loader" hidden>Cargando avatar…</div>
+        <pre id="avatarDebug" class="avatar-debug" hidden></pre>
       </div>
 
       <div id="transcript" class="transcript"></div>
@@ -58,7 +59,7 @@
     }
   }
   </script>
-  <script type="module" src="/static/app.js?v=9"></script>
+  <script type="module" src="/static/app.js?v=10"></script>
   <script>
     if ("serviceWorker" in navigator) {
       window.addEventListener("load", () => {
