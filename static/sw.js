@@ -1,4 +1,6 @@
-const CACHE_NAME = "tutor-shell-v5";
+const CACHE_NAME = "tutor-shell-v6";
+
+// Recursos del "shell" que pre-cacheamos en el install (para que la app abra offline).
 const SHELL = [
   "/",
   "/static/styles.css",
@@ -9,6 +11,9 @@ const SHELL = [
   "/static/apple-touch-icon.png",
   "/static/manifest.webmanifest"
 ];
+
+// Assets que cambian raramente y son grandes: cache-first (modelos 3D, imágenes).
+const HEAVY_ASSET_RE = /\.(glb|gltf|png|jpg|jpeg|webp|svg|woff2?)$/i;
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
@@ -28,22 +33,45 @@ self.addEventListener("activate", (event) => {
 
 self.addEventListener("fetch", (event) => {
   const req = event.request;
+  if (req.method !== "GET") return;
+
   const url = new URL(req.url);
 
   // No tocar peticiones de API ni websockets ni el endpoint de sesión
-  if (req.method !== "GET") return;
   if (url.pathname.startsWith("/api/") || url.pathname.startsWith("/ws") || url.pathname === "/session") {
     return;
   }
+  // No tocar peticiones a otros orígenes (Three.js CDN, OpenAI, etc.)
+  if (url.origin !== self.location.origin) return;
 
-  // Estrategia: cache-first para shell estático, network-first para el resto
-  if (SHELL.includes(url.pathname) || url.pathname.startsWith("/static/")) {
+  // Estrategia para assets pesados (modelos, imágenes): cache-first.
+  if (HEAVY_ASSET_RE.test(url.pathname)) {
     event.respondWith(
-      caches.match(req).then((cached) => cached || fetch(req).then((res) => {
-        const copy = res.clone();
-        caches.open(CACHE_NAME).then((cache) => cache.put(req, copy)).catch(() => {});
-        return res;
-      }))
+      caches.match(req).then((cached) =>
+        cached || fetch(req).then((res) => {
+          if (res.ok) {
+            const copy = res.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(req, copy)).catch(() => {});
+          }
+          return res;
+        })
+      )
     );
+    return;
   }
+
+  // Estrategia para HTML / JS / CSS / manifest: network-first.
+  // Así, en cuanto subas código nuevo, el navegador lo coge sin quedarse en caché viejo.
+  // Si no hay red, usamos lo que tengamos en caché (modo offline).
+  event.respondWith(
+    fetch(req)
+      .then((res) => {
+        if (res.ok) {
+          const copy = res.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(req, copy)).catch(() => {});
+        }
+        return res;
+      })
+      .catch(() => caches.match(req))
+  );
 });
