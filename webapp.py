@@ -78,7 +78,7 @@ MODES = {
         "label": "Peace",
         "subtitle": "Profesora para adultos",
         "prompt": PEACE_PROMPT,
-        "voice": "alloy",
+        "voice": "coral",
         "is_kid": False,
         "color": "#5B7FFF",
         "avatar_url": AVATAR_PEACE_URL,
@@ -87,7 +87,7 @@ MODES = {
         "label": "Mia para Lucía",
         "subtitle": "11-13 años · A2",
         "prompt": kid_prompt("Lucía"),
-        "voice": "shimmer",
+        "voice": "sage",
         "is_kid": True,
         "color": "#FF6FA0",
         "avatar_url": AVATAR_MIA_URL,
@@ -96,7 +96,7 @@ MODES = {
         "label": "Mia para Leyre",
         "subtitle": "11-13 años · A2",
         "prompt": kid_prompt("Leyre"),
-        "voice": "shimmer",
+        "voice": "sage",
         "is_kid": True,
         "color": "#9B6FFF",
         "avatar_url": AVATAR_MIA_URL,
@@ -290,7 +290,14 @@ async def mint_token(req: TokenRequest):
         "instructions": instructions,
         "modalities": ["audio", "text"],
         "input_audio_transcription": {"model": "whisper-1"},
-        "turn_detection": {"type": "server_vad"},
+        # VAD afinado para que responda como ChatGPT: poco silencio para detectar fin de turno
+        "turn_detection": {
+            "type": "server_vad",
+            "threshold": 0.55,
+            "prefix_padding_ms": 200,
+            "silence_duration_ms": 250,
+        },
+        "temperature": 0.8,
     }
 
     async with httpx.AsyncClient(timeout=30) as client:
