@@ -479,6 +479,60 @@ html, body {
   margin-bottom: 1rem;
 }
 
+/* Ejercicio de escritura (phrasal_write) */
+.voc-hint-es {
+  background: rgba(255,255,255,0.04);
+  border-left: 3px solid var(--mc-color, var(--accent));
+  padding: 0.6rem 0.9rem;
+  border-radius: 8px;
+  margin: 0.6rem 0;
+  font-size: 0.95rem;
+}
+.voc-cloze {
+  font-size: 1.15rem;
+  line-height: 1.55;
+  padding: 0.9rem 1rem;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  margin-bottom: 0.9rem;
+}
+.voc-write-row {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.voc-write-input {
+  flex: 1;
+  min-width: 0;
+  background: var(--bg-2);
+  color: var(--text);
+  border: 1.5px solid var(--border);
+  border-radius: 10px;
+  padding: 0.7rem 0.9rem;
+  font-size: 1rem;
+  font-family: inherit;
+  outline: none;
+  transition: border-color 0.15s;
+}
+.voc-write-input:focus {
+  border-color: var(--mc-color, var(--accent));
+}
+.voc-write-input.correct {
+  border-color: #4ade80;
+  background: rgba(74, 222, 128, 0.08);
+}
+.voc-write-input.wrong {
+  border-color: #f87171;
+  background: rgba(248, 113, 113, 0.08);
+}
+.voc-write-row .gram-cta {
+  flex: 0 0 auto;
+  margin: 0;
+  padding: 0.7rem 1.1rem;
+}
+
 /* ---------- Responsive ---------- */
 @media (min-width: 700px) {
   .orb { width: 280px; height: 280px; }

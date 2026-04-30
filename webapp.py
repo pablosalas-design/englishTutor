@@ -1147,54 +1147,132 @@ def fetch_distractor_meanings(
         return out
 
 
-def build_vocab_exercises(items: list[dict], level: str) -> list[dict]:
-    """Para cada phrasal de la sesión, construye 1 ejercicio (multiple choice de significado).
+def normalize_phrasal_text(s: str) -> str:
+    """Normaliza para comparar: minúsculas, sin signos de puntuación, espacios colapsados."""
+    if not s:
+        return ""
+    s = s.lower().replace("-", " ").replace("'", "'").replace("’", "'")
+    # Quita puntuación común
+    for ch in [".", ",", ";", ":", "!", "?", '"', "(", ")"]:
+        s = s.replace(ch, " ")
+    return re.sub(r"\s+", " ", s).strip()
 
-    Garantiza 4 opciones únicas y que la correcta no aparezca repetida.
+
+def make_cloze_for_phrasal(example_en: str, phrasal: str) -> str | None:
+    """Devuelve la frase en inglés con el phrasal sustituido por '_____', o None si no se encuentra.
+
+    Acepta formas conjugadas comunes del primer verbo (s, ed, ing) y la base.
+    No cubre todos los irregulares; en ese caso devuelve None y se usará otro tipo de ejercicio.
     """
+    if not example_en or not phrasal:
+        return None
+    parts = phrasal.lower().split()
+    if not parts:
+        return None
+    verb = parts[0]
+    rest = parts[1:]
+    if len(verb) < 2:
+        return None
+    forms: set[str] = {verb, verb + "s", verb + "ed", verb + "ing"}
+    if verb.endswith("e"):
+        forms.add(verb[:-1] + "ing")  # take -> taking
+        forms.add(verb + "d")          # take -> taked? mejor no, pero coge "made", etc.
+    if verb.endswith("y"):
+        forms.add(verb[:-1] + "ies")
+        forms.add(verb[:-1] + "ied")
+    pattern_verb = "(" + "|".join(re.escape(f) for f in sorted(forms, key=len, reverse=True)) + ")"
+    pattern_rest = ""
+    if rest:
+        pattern_rest = r"\s+" + r"\s+".join(re.escape(p) for p in rest)
+    pattern = re.compile(rf"\b{pattern_verb}{pattern_rest}\b", re.IGNORECASE)
+    m = pattern.search(example_en)
+    if not m:
+        return None
+    return example_en[:m.start()] + "_____" + example_en[m.end():]
+
+
+def build_meaning_mc_exercise(it: dict, level: str, item_ids: list[int]) -> dict:
+    """Ejercicio de elección múltiple: dado el phrasal, elige el significado en español."""
+    correct = it["meaning_es"]
+    candidates = fetch_distractor_meanings(
+        level, item_ids, exclude_meanings=[correct], n=8
+    )
+    distractors: list[str] = []
+    seen = {correct}
+    for c in candidates:
+        if c not in seen:
+            distractors.append(c)
+            seen.add(c)
+        if len(distractors) >= 3:
+            break
+    for g in GENERIC_DISTRACTORS:
+        if len(distractors) >= 3:
+            break
+        if g not in seen:
+            distractors.append(g)
+            seen.add(g)
+    options = [correct] + distractors[:3]
+    random.shuffle(options)
+    question_en = (
+        f"What does \"{it['phrasal']}\" mean?"
+        if level == "B2-C1"
+        else f"¿Qué significa \"{it['phrasal']}\"?"
+    )
+    return {
+        "phrasal_id": it["id"],
+        "phrasal": it["phrasal"],
+        "type": "meaning_mc",
+        "question": question_en,
+        "options": options,
+        "correct": correct,
+        "explanation": it.get("meaning_en", ""),
+        "examples": it.get("examples", []),
+    }
+
+
+def build_phrasal_write_exercise(it: dict, level: str) -> dict | None:
+    """Ejercicio de escritura: ver pista (significado en es + frase en inglés con hueco) y escribir el phrasal."""
+    examples = it.get("examples") or []
+    cloze = None
+    chosen_example = None
+    for ex in examples:
+        en = (ex or {}).get("en", "") if isinstance(ex, dict) else ""
+        c = make_cloze_for_phrasal(en, it["phrasal"])
+        if c:
+            cloze = c
+            chosen_example = ex
+            break
+    if not cloze:
+        return None  # señalamos al caller que use otro tipo
+    instruction_es = "Escribe el phrasal verb que falta. Pista en español:"
+    return {
+        "phrasal_id": it["id"],
+        "phrasal": it["phrasal"],
+        "type": "phrasal_write",
+        "instruction": instruction_es,
+        "hint_es": it["meaning_es"],
+        "cloze_en": cloze,
+        "correct": it["phrasal"],
+        "explanation": it.get("meaning_en", ""),
+        "examples": examples,
+    }
+
+
+def build_vocab_exercises(items: list[dict], level: str) -> list[dict]:
+    """Para cada phrasal de la sesión, construye 1 ejercicio. Mezcla MC y escritura."""
     if not items:
         return []
     item_ids = [it["id"] for it in items]
-    item_meanings = [it["meaning_es"] for it in items]
-    exercises = []
+    exercises: list[dict] = []
     for idx, it in enumerate(items):
-        correct = it["meaning_es"]
-        # Pedimos algunos extra y luego nos quedamos con 3 únicos distintos del correcto.
-        candidates = fetch_distractor_meanings(
-            level, item_ids, exclude_meanings=[correct], n=8
-        )
-        distractors: list[str] = []
-        seen = {correct}
-        for c in candidates:
-            if c not in seen:
-                distractors.append(c)
-                seen.add(c)
-            if len(distractors) >= 3:
-                break
-        # Si seguimos cortos (BD muy pequeña), usamos distractores genéricos únicos.
-        for g in GENERIC_DISTRACTORS:
-            if len(distractors) >= 3:
-                break
-            if g not in seen:
-                distractors.append(g)
-                seen.add(g)
-        options = [correct] + distractors[:3]
-        random.shuffle(options)
-        question_en = (
-            f"What does \"{it['phrasal']}\" mean?"
-            if level == "B2-C1"
-            else f"¿Qué significa \"{it['phrasal']}\"?"
-        )
-        exercises.append({
-            "phrasal_id": it["id"],
-            "phrasal": it["phrasal"],
-            "type": "meaning_mc",
-            "question": question_en,
-            "options": options,
-            "correct": correct,
-            "explanation": it.get("meaning_en", ""),
-            "examples": it.get("examples", []),
-        })
+        # Alternamos: pares MC, impares writing (con fallback a MC si no hay cloze posible).
+        prefer_write = (idx % 2 == 1)
+        ex = None
+        if prefer_write:
+            ex = build_phrasal_write_exercise(it, level)
+        if ex is None:
+            ex = build_meaning_mc_exercise(it, level, item_ids)
+        exercises.append(ex)
     random.shuffle(exercises)
     return exercises
 
@@ -1474,6 +1552,7 @@ async def grammar_regenerate(mode: str, item: RegenerateItem):
 class VocabAnswerItem(BaseModel):
     phrasal_id: int
     user_answer: str | None = None
+    exercise_type: str | None = "meaning_mc"  # "meaning_mc" o "phrasal_write"
 
 
 @app.get("/api/vocab/today")
@@ -1499,17 +1578,29 @@ async def vocab_answer(mode: str, item: VocabAnswerItem):
 
     with db_cursor() as cur:
         cur.execute(
-            "SELECT id, meaning_es FROM phrasal_verbs WHERE id = %s AND level = %s",
+            "SELECT id, phrasal, meaning_es FROM phrasal_verbs WHERE id = %s AND level = %s",
             (item.phrasal_id, level),
         )
         row = cur.fetchone()
     if not row:
         raise HTTPException(status_code=404, detail="Phrasal verb no encontrado para este nivel")
 
-    is_correct = (item.user_answer or "").strip() == (row["meaning_es"] or "").strip()
+    user_ans = (item.user_answer or "").strip()
+    if (item.exercise_type or "meaning_mc") == "phrasal_write":
+        is_correct = normalize_phrasal_text(user_ans) == normalize_phrasal_text(row["phrasal"])
+    else:
+        # meaning_mc: comparar contra el significado en español
+        is_correct = user_ans == (row["meaning_es"] or "").strip()
+
     progress = update_phrasal_progress(chat_id, item.phrasal_id, is_correct)
     progress["next_due_at"] = progress["next_due_at"].isoformat()
-    return {"ok": True, "is_correct": is_correct, "correct_meaning": row["meaning_es"], "progress": progress}
+    return {
+        "ok": True,
+        "is_correct": is_correct,
+        "correct_meaning": row["meaning_es"],
+        "correct_phrasal": row["phrasal"],
+        "progress": progress,
+    }
 
 
 # Servir estáticos al final para que las rutas API tengan prioridad

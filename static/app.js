@@ -683,6 +683,15 @@ function renderVocabStudyCard() {
   });
 }
 
+function normalizePhrasalClient(s) {
+  if (!s) return "";
+  return s.toLowerCase()
+    .replace(/[-]/g, " ")
+    .replace(/[.,;:!?"()]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function renderVocabExercise() {
   const s = state.vocabSession;
   const idx = state.vocabExIdx;
@@ -694,6 +703,16 @@ function renderVocabExercise() {
   }
 
   const ex = s.exercises[idx];
+
+  if (ex.type === "phrasal_write") {
+    renderVocabWriteExercise(ex, idx, total);
+  } else {
+    renderVocabMcExercise(ex, idx, total);
+  }
+  els.vocabBody.scrollTop = 0;
+}
+
+function renderVocabMcExercise(ex, idx, total) {
   els.vocabBody.innerHTML = `
     <div class="gram-progress">Pregunta ${idx + 1} de ${total}</div>
     <div class="gram-question">
@@ -707,11 +726,78 @@ function renderVocabExercise() {
     </div>
   `;
   const opts = els.vocabBody.querySelectorAll(".gram-option");
-  opts.forEach(btn => btn.addEventListener("click", () => handleVocabAnswer(btn, ex, opts)));
-  els.vocabBody.scrollTop = 0;
+  opts.forEach(btn => btn.addEventListener("click", () => handleVocabMcAnswer(btn, ex, opts)));
 }
 
-async function handleVocabAnswer(btn, ex, allBtns) {
+function renderVocabWriteExercise(ex, idx, total) {
+  els.vocabBody.innerHTML = `
+    <div class="gram-progress">Pregunta ${idx + 1} de ${total} · Escribir</div>
+    <div class="gram-question">
+      <div class="q">${escapeHtml(ex.instruction || "Escribe el phrasal verb que falta:")}</div>
+      <div class="voc-hint-es"><strong>Pista (es):</strong> ${escapeHtml(ex.hint_es || "")}</div>
+      <div class="voc-cloze">${escapeHtml(ex.cloze_en || "")}</div>
+      <div class="voc-write-row">
+        <input type="text" id="vocWriteInput" class="voc-write-input"
+               placeholder="escribe el phrasal verb…" autocomplete="off"
+               autocapitalize="off" autocorrect="off" spellcheck="false" />
+        <button class="gram-cta" id="vocWriteCheck">Comprobar</button>
+      </div>
+      <div id="feedback"></div>
+    </div>
+  `;
+  const input = document.getElementById("vocWriteInput");
+  const btn = document.getElementById("vocWriteCheck");
+  const submit = () => handleVocabWriteAnswer(ex, input, btn);
+  btn.addEventListener("click", submit);
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { e.preventDefault(); submit(); }
+  });
+  setTimeout(() => input.focus(), 50);
+}
+
+function showVocabFeedback(ex, isCorrect) {
+  const fb = document.getElementById("feedback");
+  fb.className = `gram-feedback ${isCorrect ? "correct" : "wrong"}`;
+  const head = isCorrect ? "✓ Correct" : "✗ Not quite";
+  const examples = (ex.examples || []).slice(0, 2).map(e => `
+    <div class="gram-example" style="margin-top: 0.5rem;">
+      <div class="en">${escapeHtml(e.en)}</div>
+      <div class="es">${escapeHtml(e.es || "")}</div>
+    </div>
+  `).join("");
+  const summary = ex.type === "phrasal_write"
+    ? `<em>${escapeHtml(ex.phrasal)}</em> = ${escapeHtml(ex.hint_es || "")}.`
+    : `<em>${escapeHtml(ex.phrasal)}</em> = ${escapeHtml(ex.correct)}.`;
+  fb.innerHTML = `
+    <strong>${head}.</strong> ${summary}
+    <span class="answer">${escapeHtml(ex.explanation || "")}</span>
+    ${examples}
+  `;
+  const next = document.createElement("button");
+  next.className = "gram-cta";
+  next.style.marginTop = "0.8rem";
+  next.textContent = state.vocabExIdx + 1 >= state.vocabSession.exercises.length ? "Ver resultado →" : "Siguiente →";
+  next.addEventListener("click", () => {
+    state.vocabExIdx++;
+    renderVocabExercise();
+  });
+  fb.parentElement.appendChild(next);
+  next.focus();
+}
+
+function persistVocabAnswer(ex, userAnswer) {
+  fetch(`/api/vocab/answer?mode=${encodeURIComponent(state.mode.id)}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      phrasal_id: ex.phrasal_id,
+      user_answer: userAnswer,
+      exercise_type: ex.type || "meaning_mc",
+    }),
+  }).catch(err => console.warn("[vocab] answer save failed", err));
+}
+
+async function handleVocabMcAnswer(btn, ex, allBtns) {
   const chosen = btn.textContent;
   const isCorrect = chosen === ex.correct;
   allBtns.forEach(b => { b.disabled = true; });
@@ -724,43 +810,20 @@ async function handleVocabAnswer(btn, ex, allBtns) {
       if (b.textContent === ex.correct) b.classList.add("correct");
     });
   }
+  persistVocabAnswer(ex, chosen);
+  showVocabFeedback(ex, isCorrect);
+}
 
-  // Feedback con la definición y los ejemplos
-  const fb = document.getElementById("feedback");
-  fb.className = `gram-feedback ${isCorrect ? "correct" : "wrong"}`;
-  const head = isCorrect ? "✓ Correct" : "✗ Not quite";
-  const examples = (ex.examples || []).slice(0, 2).map(e => `
-    <div class="gram-example" style="margin-top: 0.5rem;">
-      <div class="en">${escapeHtml(e.en)}</div>
-      <div class="es">${escapeHtml(e.es || "")}</div>
-    </div>
-  `).join("");
-  fb.innerHTML = `
-    <strong>${head}.</strong> <em>${escapeHtml(ex.phrasal)}</em> = ${escapeHtml(ex.correct)}.
-    <span class="answer">${escapeHtml(ex.explanation || "")}</span>
-    ${examples}
-  `;
-
-  // Guardar respuesta en el servidor (Leitner). Fire-and-forget.
-  fetch(`/api/vocab/answer?mode=${encodeURIComponent(state.mode.id)}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      phrasal_id: ex.phrasal_id,
-      user_answer: chosen,
-    }),
-  }).catch(err => console.warn("[vocab] answer save failed", err));
-
-  const next = document.createElement("button");
-  next.className = "gram-cta";
-  next.style.marginTop = "0.8rem";
-  next.textContent = state.vocabExIdx + 1 >= state.vocabSession.exercises.length ? "Ver resultado →" : "Siguiente →";
-  next.addEventListener("click", () => {
-    state.vocabExIdx++;
-    renderVocabExercise();
-  });
-  fb.parentElement.appendChild(next);
-  next.focus();
+async function handleVocabWriteAnswer(ex, input, btn) {
+  if (input.disabled) return;
+  const raw = input.value || "";
+  const isCorrect = normalizePhrasalClient(raw) === normalizePhrasalClient(ex.correct || ex.phrasal);
+  input.disabled = true;
+  btn.disabled = true;
+  input.classList.add(isCorrect ? "correct" : "wrong");
+  if (isCorrect) state.vocabCorrectCount++;
+  persistVocabAnswer(ex, raw);
+  showVocabFeedback(ex, isCorrect);
 }
 
 function renderVocabResult() {
