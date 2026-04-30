@@ -120,6 +120,7 @@ class Avatar3D {
     const gltf = await loader.loadAsync(finalUrl);
     const root = gltf.scene;
     const allMorphNames = new Set();
+    const armBones = [];
     root.traverse((obj) => {
       if (obj.isMesh) {
         obj.frustumCulled = false;
@@ -138,12 +139,27 @@ class Avatar3D {
           }
         }
       }
-      if (obj.isBone && /head/i.test(obj.name) && !this.headBone) {
-        this.headBone = obj;
+      if (obj.isBone) {
+        if (/head/i.test(obj.name) && !this.headBone) this.headBone = obj;
+        // Brazos: bajar de T-pose a postura natural
+        if (/(LeftArm|Left_Arm|L_Arm|Arm_L|UpperArm.?L|LeftUpperArm|mixamorig.*LeftArm)$/i.test(obj.name)) {
+          armBones.push({ bone: obj, side: "L" });
+        }
+        if (/(RightArm|Right_Arm|R_Arm|Arm_R|UpperArm.?R|RightUpperArm|mixamorig.*RightArm)$/i.test(obj.name)) {
+          armBones.push({ bone: obj, side: "R" });
+        }
       }
     });
+
+    // Bajar brazos: rotar ~70° desde la T-pose hacia abajo en el eje Z local
+    for (const { bone, side } of armBones) {
+      const angle = side === "L" ? 1.25 : -1.25; // ~72°
+      bone.rotation.z += angle;
+    }
+
     console.log("[avatar] morphs found:", [...allMorphNames]);
     console.log("[avatar] mouth/blink morphs matched:", this.morphMeshes.map(m => Object.keys(m.indices)));
+    console.log("[avatar] arm bones rotated:", armBones.map(a => a.bone.name));
 
     this.avatarRoot = root;
     this.scene.add(root);
@@ -184,7 +200,7 @@ class Avatar3D {
     // Distancia: queremos que cabeza+cuello+hombros ocupen ~70% del alto del canvas.
     // Cabeza humana ≈ 13% de la altura total. Encuadre busto ≈ 25% de altura.
     const fovRad = (this.camera.fov * Math.PI) / 180;
-    const frameHeight = height * 0.30; // alto que queremos que ocupe la pantalla
+    const frameHeight = height * 0.22; // alto que queremos que ocupe la pantalla (cara + busto)
     const distance = (frameHeight / 2) / Math.tan(fovRad / 2);
 
     this.camera.position.set(headTarget.x, headTarget.y, headTarget.z + distance);
