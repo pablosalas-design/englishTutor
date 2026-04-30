@@ -120,6 +120,7 @@ class Avatar3D {
     const gltf = await loader.loadAsync(finalUrl);
     const root = gltf.scene;
     const allMorphNames = new Set();
+    const allBoneNames = [];
     const armBones = [];
     root.traverse((obj) => {
       if (obj.isMesh) {
@@ -140,14 +141,17 @@ class Avatar3D {
         }
       }
       if (obj.isBone) {
+        allBoneNames.push(obj.name);
         if (/head/i.test(obj.name) && !this.headBone) this.headBone = obj;
-        // Brazos: bajar de T-pose a postura natural
-        if (/(LeftArm|Left_Arm|L_Arm|Arm_L|UpperArm.?L|LeftUpperArm|mixamorig.*LeftArm)$/i.test(obj.name)) {
-          armBones.push({ bone: obj, side: "L" });
-        }
-        if (/(RightArm|Right_Arm|R_Arm|Arm_R|UpperArm.?R|RightUpperArm|mixamorig.*RightArm)$/i.test(obj.name)) {
-          armBones.push({ bone: obj, side: "R" });
-        }
+        // Brazos: detectamos por nombre, evitando ForeArm/Forearm (codo) y Shoulder (clavícula)
+        const isLeft = /left|_l$|\.l$|^l_/i.test(obj.name);
+        const isRight = /right|_r$|\.r$|^r_/i.test(obj.name);
+        const isUpperArm = /(upper.?arm|^arm|[^a-z]arm)/i.test(obj.name)
+                          && !/fore.?arm/i.test(obj.name)
+                          && !/shoulder|clavic/i.test(obj.name)
+                          && !/hand|finger|thumb|index|middle|ring|pinky/i.test(obj.name);
+        if (isUpperArm && isLeft) armBones.push({ bone: obj, side: "L" });
+        else if (isUpperArm && isRight) armBones.push({ bone: obj, side: "R" });
       }
     });
 
@@ -159,6 +163,7 @@ class Avatar3D {
 
     console.log("[avatar] morphs found:", [...allMorphNames]);
     console.log("[avatar] mouth/blink morphs matched:", this.morphMeshes.map(m => Object.keys(m.indices)));
+    console.log("[avatar] all bone names:", allBoneNames);
     console.log("[avatar] arm bones rotated:", armBones.map(a => a.bone.name));
 
     this.avatarRoot = root;
