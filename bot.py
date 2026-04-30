@@ -742,12 +742,18 @@ def main():
     app.add_handler(MessageHandler(filters.VOICE | filters.AUDIO, handle_voice))
 
     # Resumen semanal: viernes a las 20:00 hora España
-    app.job_queue.run_daily(
-        send_weekly_summaries,
-        time=time(hour=20, minute=0, tzinfo=SPAIN_TZ),
-        days=(4,),  # Friday (0=Mon)
-        name="weekly_summary",
-    )
+    # PAUSADO temporalmente a petición del usuario.
+    # Para reactivarlo, pon WEEKLY_SUMMARY_ENABLED=1 en las variables de entorno.
+    if os.getenv("WEEKLY_SUMMARY_ENABLED", "0") == "1":
+        app.job_queue.run_daily(
+            send_weekly_summaries,
+            time=time(hour=20, minute=0, tzinfo=SPAIN_TZ),
+            days=(4,),  # Friday (0=Mon)
+            name="weekly_summary",
+        )
+        print("[bot] Weekly summary job scheduled (Fridays 20:00 Europe/Madrid).")
+    else:
+        print("[bot] Weekly summary job is PAUSED (WEEKLY_SUMMARY_ENABLED != '1').")
 
     app.run_polling()
 
