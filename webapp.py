@@ -770,8 +770,20 @@ def regenerate_exercises_for_lesson(chat_id: int, mode: str, lesson_id: int) -> 
 def get_or_create_today_lesson(chat_id: int, mode: str) -> dict:
     today = utc_today()
     existing = fetch_today_lesson(chat_id, today)
+    plan = exercise_plan_for(mode)
     if existing:
         existing["lesson_id"] = existing.pop("id")
+        # Auto-curación: si la lección cacheada se hizo con un número de ejercicios
+        # distinto al plan actual del perfil, regenera los ejercicios al vuelo
+        # manteniendo el mismo tema, título y explicación.
+        exs = existing.get("exercises")
+        if not isinstance(exs, list) or len(exs) != plan["total"]:
+            try:
+                fixed = regenerate_exercises_for_lesson(chat_id, mode, existing["lesson_id"])
+                return fixed
+            except Exception as e:
+                print(f"[grammar] auto-heal exercises failed: {e}")
+                # Si falla, devolvemos la lección antigua igualmente para no romper la pantalla.
         return existing
 
     lesson = generate_lesson(chat_id, mode)
