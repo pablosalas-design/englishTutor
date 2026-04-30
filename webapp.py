@@ -229,6 +229,20 @@ async def root():
     return FileResponse("static/index.html")
 
 
+@app.get("/manifest.webmanifest")
+async def manifest():
+    return FileResponse("static/manifest.webmanifest", media_type="application/manifest+json")
+
+
+@app.get("/sw.js")
+async def service_worker():
+    # El SW debe servirse desde la raíz para tener scope sobre toda la app.
+    response = FileResponse("static/sw.js", media_type="application/javascript")
+    response.headers["Service-Worker-Allowed"] = "/"
+    response.headers["Cache-Control"] = "no-cache"
+    return response
+
+
 @app.get("/api/modes")
 async def list_modes():
     return [
