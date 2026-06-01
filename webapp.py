@@ -531,6 +531,7 @@ LEVEL_CURRICULUM: dict[str, list[str]] = {
         "indirect_questions",                        # Could you tell me where...
         "passive_voice",
         # Modals
+        "may_might_possibility_permission",          # It may rain / May I come in? / may vs might
         "modals_of_deduction_present",               # must / might / can't be
         "modals_of_deduction_past",                  # must / might / can't have + past participle
         # Relatives
@@ -773,6 +774,7 @@ TOPIC_LABELS: dict[str, str] = {
     "reported_speech": "Estilo indirecto",
     "indirect_questions": "Preguntas indirectas",
     "passive_voice": "Voz pasiva",
+    "may_might_possibility_permission": "may / might (posibilidad y permiso)",
     "modals_of_deduction_present": "Modales de deducción (presente)",
     "modals_of_deduction_past": "Modales de deducción (pasado)",
     "relative_clauses_defining": "Relativas especificativas",
