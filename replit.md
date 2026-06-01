@@ -57,8 +57,15 @@ Flow: persona picker → activity picker (`Hablar` / `Gramática`) → voice scr
   - `lucia`, `leyre` → 5 exercises (3 mc + 2 fill)
 - `POST /api/grammar/attempt` re-evaluates correctness on the server (does not trust the client's verdict), checks that the lesson belongs to the caller's profile, and records the attempt in `grammar_attempts`.
 - `POST /api/grammar/regenerate` regenerates ONLY the exercises for an existing lesson (same topic/explanation, fresh content). Validates lesson ownership, replaces `exercises` in DB, deletes old `grammar_attempts` for that `lesson_id`. Driven by `REGEN_EXERCISES_SYSTEM_PROMPT` and `regenerate_exercises_for_lesson()`. Used by the result screen's "Repetir con ejercicios nuevos" button.
-- DB tables: `grammar_lessons` (UNIQUE `chat_id`+`lesson_date`) and `grammar_attempts`.
+- DB tables: `grammar_lessons` (has `is_practice` boolean; two partial unique indexes keep daily and practice rows separate — `uq_grammar_lessons_daily` on `(chat_id,lesson_date) WHERE is_practice=FALSE` and `uq_grammar_lessons_practice` on `(chat_id,lesson_date,topic) WHERE is_practice=TRUE`; `insert_lesson` targets the matching one) and `grammar_attempts`.
 - `web_chat_id` mapping: `peace=-1001`, `lucia=-1002`, `leyre=-1003`.
+
+#### Progress map + on-demand practice
+
+- Activity card "📊 Mi progreso" (`actProgress`) in the subpicker opens a `#progress` screen (a "semáforo" map of every curriculum topic).
+- `GET /api/grammar/progress?mode={peace|lucia|leyre}` returns `{level, mode, summary{total,mastered,in_progress,not_started}, topics[{slug,label,status,attempts,accuracy}]}`. One row per topic in that level's `LEVEL_CURRICULUM`. Status: `mastered` (≥6 attempts AND ≥80% accuracy), `in_progress` (any attempts but not mastered), `not_started` (no attempts). Spanish labels come from `TOPIC_LABELS` / `grammar_topic_label`; computed by `build_grammar_progress`.
+- `POST /api/grammar/practice?mode=...` body `{topic}` creates an extra **practice** lesson for that topic (`is_practice=TRUE`, via `create_practice_lesson` → `generate_lesson(forced_topic=)`). Practice lessons are excluded from `fetch_today_lesson` (which filters `is_practice=FALSE`) so the daily lesson is unaffected. The frontend reuses the existing grammar screen/flow (intro → exercises → result, incl. attempts + regenerate) for practice lessons.
+- Frontend: `startProgress` / `renderProgress` / `practiceTopic` in `app.js`; `.prog-*` styles in `styles.css`.
 
 #### Vocabulary feature (phrasal verbs + Leitner SRS)
 
@@ -77,7 +84,7 @@ Flow: persona picker → activity picker (`Hablar` / `Gramática`) → voice scr
 
 #### Static assets cache
 
-Query string `?v=14` on `app.js` and `styles.css`; service worker cache is `tutor-shell-v11`. After deploying, do a hard refresh (or close/reopen the PWA) so the new SW activates.
+Query string `?v=17` on `app.js` and `styles.css`; service worker cache is `tutor-shell-v14`. After deploying, do a hard refresh (or close/reopen the PWA) so the new SW activates. Bump both whenever frontend assets change.
 
 The voice screen uses only the animated orb (`#orb`). The previous 3D avatar system (Ready Player Me / `.glb` model, three.js, `avatar.js`, `AVATAR_*` env vars) was fully removed.
 

@@ -145,6 +145,22 @@ def init_db_grammar():
             );
             CREATE INDEX IF NOT EXISTS idx_grammar_lessons_chat_date
               ON grammar_lessons(chat_id, lesson_date DESC);
+            -- Lecciones de "Practicar este tema": varias por día (una por tema),
+            -- separadas de la lección automática del día (is_practice = FALSE).
+            ALTER TABLE grammar_lessons
+              ADD COLUMN IF NOT EXISTS is_practice BOOLEAN NOT NULL DEFAULT FALSE;
+            ALTER TABLE grammar_lessons
+              DROP CONSTRAINT IF EXISTS grammar_lessons_chat_id_lesson_date_key;
+            -- La lección automática del día es única por (chat_id, lesson_date);
+            -- las de práctica son únicas por (chat_id, lesson_date, topic). Dos
+            -- índices parciales evitan que una colisione/sobrescriba a la otra.
+            DROP INDEX IF EXISTS uq_grammar_lessons_chat_date_topic;
+            CREATE UNIQUE INDEX IF NOT EXISTS uq_grammar_lessons_daily
+              ON grammar_lessons(chat_id, lesson_date)
+              WHERE is_practice = FALSE;
+            CREATE UNIQUE INDEX IF NOT EXISTS uq_grammar_lessons_practice
+              ON grammar_lessons(chat_id, lesson_date, topic)
+              WHERE is_practice = TRUE;
             CREATE TABLE IF NOT EXISTS grammar_attempts (
               id SERIAL PRIMARY KEY,
               chat_id BIGINT NOT NULL,
@@ -335,12 +351,15 @@ def fetch_past_lesson_topics(chat_id: int, limit: int = 20) -> list[str]:
 
 
 def fetch_today_lesson(chat_id: int, today: date) -> dict | None:
+    """La lección AUTOMÁTICA del día (no las de 'Practicar este tema')."""
     with db_cursor() as cur:
         cur.execute(
             """
             SELECT id, topic, level, lang, title, explanation, examples, exercises
             FROM grammar_lessons
-            WHERE chat_id = %s AND lesson_date = %s
+            WHERE chat_id = %s AND lesson_date = %s AND is_practice = FALSE
+            ORDER BY id DESC
+            LIMIT 1
             """,
             (chat_id, today),
         )
@@ -348,14 +367,20 @@ def fetch_today_lesson(chat_id: int, today: date) -> dict | None:
     return dict(row) if row else None
 
 
-def insert_lesson(chat_id: int, mode: str, today: date, lesson: dict) -> int:
+def insert_lesson(chat_id: int, mode: str, today: date, lesson: dict, is_practice: bool = False) -> int:
+    # Cada tipo de lección usa su propio índice parcial para que la del día y las
+    # de práctica nunca se sobrescriban entre sí (ver init_db_grammar).
+    if is_practice:
+        conflict_clause = "ON CONFLICT (chat_id, lesson_date, topic) WHERE is_practice = TRUE"
+    else:
+        conflict_clause = "ON CONFLICT (chat_id, lesson_date) WHERE is_practice = FALSE"
     with db_cursor() as cur:
         cur.execute(
-            """
+            f"""
             INSERT INTO grammar_lessons
-              (chat_id, mode, lesson_date, topic, level, lang, title, explanation, examples, exercises)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-            ON CONFLICT (chat_id, lesson_date) DO UPDATE SET
+              (chat_id, mode, lesson_date, topic, level, lang, title, explanation, examples, exercises, is_practice)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            {conflict_clause} DO UPDATE SET
               topic = EXCLUDED.topic,
               title = EXCLUDED.title,
               explanation = EXCLUDED.explanation,
@@ -374,6 +399,7 @@ def insert_lesson(chat_id: int, mode: str, today: date, lesson: dict) -> int:
                 lesson["explanation"],
                 json.dumps(lesson["examples"]),
                 json.dumps(lesson["exercises"]),
+                is_practice,
             ),
         )
         return cur.fetchone()["id"]
@@ -394,7 +420,9 @@ Inputs you will receive:
 
 Your job:
 1. Pick ONE grammar topic. The "topic" field MUST be EXACTLY one of the slugs in available_topics.
-   Priority for choosing:
+   - If the input contains a non-empty "forced_topic", you MUST use EXACTLY that slug as
+     the topic and build the whole lesson on it. Ignore the selection priority below.
+   - Otherwise choose by this priority:
      a) A topic from available_topics that the recent_user_lines suggest is weak
         (recurring mistakes, avoidance, awkward phrasing) AND is not in past_topics.
      b) Otherwise, any topic from available_topics that is not in past_topics.
@@ -661,7 +689,7 @@ def normalize_fill_answers(exs: list) -> None:
             e["accept"] = [str(a).strip().lower() for a in e.get("accept", []) if isinstance(a, str)]
 
 
-def generate_lesson(chat_id: int, mode: str) -> dict:
+def generate_lesson(chat_id: int, mode: str, forced_topic: str | None = None) -> dict:
     if not openai_client:
         raise HTTPException(status_code=500, detail="Falta OPENAI_API_KEY")
 
@@ -683,6 +711,8 @@ def generate_lesson(chat_id: int, mode: str) -> dict:
         "past_topics": past_topics,
         "exercise_plan": plan,
     }
+    if forced_topic:
+        user_payload["forced_topic"] = forced_topic
 
     last_error = ""
     for attempt in range(2):  # 1 intento + 1 reintento si validación falla
@@ -702,6 +732,9 @@ def generate_lesson(chat_id: int, mode: str) -> dict:
             continue
 
         ok, err = validate_lesson_payload(data, plan)
+        if ok and forced_topic:
+            # Forzamos el slug exacto aunque el modelo desvíe el nombre.
+            data["topic"] = forced_topic
         if ok and available_topics and data["topic"] not in available_topics:
             ok, err = False, f"topic '{data['topic']}' not in curriculum for {cfg['level']}"
         if ok:
@@ -712,6 +745,164 @@ def generate_lesson(chat_id: int, mode: str) -> dict:
         last_error = err
 
     raise HTTPException(status_code=502, detail=f"Generated lesson invalid: {last_error}")
+
+
+def create_practice_lesson(chat_id: int, mode: str, topic: str) -> dict:
+    """Genera (y guarda) una lección para un tema concreto del temario del perfil.
+    Se guarda como lección de práctica (is_practice=TRUE), separada de la del día."""
+    cfg = MODES[mode]
+    available_topics = LEVEL_CURRICULUM.get(cfg["level"], [])
+    if topic not in available_topics:
+        raise HTTPException(status_code=400, detail="Tema no válido para este nivel")
+
+    lesson = generate_lesson(chat_id, mode, forced_topic=topic)
+    lesson_id = insert_lesson(chat_id, mode, utc_today(), lesson, is_practice=True)
+    lesson["lesson_id"] = lesson_id
+    return lesson
+
+
+# Etiquetas legibles (es) para cada slug del temario. Si falta una, se genera
+# a partir del slug. Editable en un único sitio.
+TOPIC_LABELS: dict[str, str] = {
+    # B2-C1
+    "second_conditional": "Segundo condicional",
+    "third_conditional": "Tercer condicional",
+    "mixed_conditionals": "Condicionales mixtos",
+    "conditionals_unless_provided_as_long_as": "Condicionales: unless / provided / as long as",
+    "reported_speech": "Estilo indirecto",
+    "indirect_questions": "Preguntas indirectas",
+    "passive_voice": "Voz pasiva",
+    "modals_of_deduction_present": "Modales de deducción (presente)",
+    "modals_of_deduction_past": "Modales de deducción (pasado)",
+    "relative_clauses_defining": "Relativas especificativas",
+    "relative_clauses_non_defining": "Relativas explicativas",
+    "reduced_relative_clauses": "Relativas reducidas",
+    "gerunds_vs_infinitives": "Gerundio vs infinitivo",
+    "subjunctive_suggest_recommend_insist": "Subjuntivo (suggest/recommend/insist)",
+    "inversion_negative_adverbials": "Inversión con adverbios negativos",
+    "cleft_sentences": "Oraciones enfáticas (cleft)",
+    "emphasis_do_does_did": "Énfasis con do/does/did",
+    "wish_if_only": "wish / if only",
+    "used_to_be_used_to_get_used_to": "used to / be used to / get used to",
+    "causative_have_get": "Causativo (have/get something done)",
+    "future_continuous": "Futuro continuo",
+    "future_perfect": "Futuro perfecto",
+    "past_perfect_continuous": "Pasado perfecto continuo",
+    "phrasal_verbs_separable": "Phrasal verbs separables",
+    "linkers_advanced": "Conectores avanzados",
+    "linkers_purpose_result": "Conectores de propósito y resultado",
+    "so_such_too_enough": "so / such / too / enough",
+    "question_tags": "Question tags",
+    "participle_clauses": "Cláusulas de participio",
+    "articles_advanced": "Artículos (avanzado)",
+    "comparison_advanced": "Comparación (avanzado)",
+    # A2-B1
+    "present_simple": "Presente simple",
+    "present_continuous": "Presente continuo",
+    "present_simple_vs_continuous": "Presente simple vs continuo",
+    "have_got": "have got",
+    "past_simple_regular_irregular": "Pasado simple (regular/irregular)",
+    "past_continuous": "Pasado continuo",
+    "used_to_past_habits": "used to (hábitos del pasado)",
+    "past_perfect_basic": "Pasado perfecto (básico)",
+    "present_perfect_basic": "Presente perfecto (básico)",
+    "future_will_vs_going_to": "Futuro: will vs going to",
+    "zero_conditional": "Condicional cero",
+    "first_conditional": "Primer condicional",
+    "time_conjunctions_when_while_before_after": "Conjunciones de tiempo (when/while/before/after)",
+    "modals_can_could": "Modales: can / could",
+    "modals_must_should": "Modales: must / should",
+    "have_to_dont_have_to": "have to / don't have to",
+    "comparatives_superlatives": "Comparativos y superlativos",
+    "articles_a_an_the": "Artículos: a / an / the",
+    "countable_uncountable": "Contables e incontables",
+    "some_any_much_many_a_lot_of": "some / any / much / many / a lot of",
+    "both_either_neither": "both / either / neither",
+    "prepositions_of_time": "Preposiciones de tiempo",
+    "prepositions_of_place": "Preposiciones de lugar",
+    "prepositions_of_movement": "Preposiciones de movimiento",
+    "object_pronouns": "Pronombres de objeto",
+    "possessive_adjectives_vs_pronouns": "Posesivos: adjetivos vs pronombres",
+    "reflexive_pronouns": "Pronombres reflexivos",
+    "demonstratives_this_that_these_those": "Demostrativos (this/that/these/those)",
+    "possessive_s_vs_of": "Posesivo 's vs of",
+    "adverbs_of_frequency": "Adverbios de frecuencia",
+    "there_is_there_are": "there is / there are",
+    "question_words": "Palabras interrogativas",
+    "linkers_basic": "Conectores básicos",
+    "so_neither_agreement": "Acuerdo: so do I / neither do I",
+    "like_love_hate_ing": "like / love / hate + -ing",
+}
+
+
+def grammar_topic_label(slug: str) -> str:
+    return TOPIC_LABELS.get(slug) or slug.replace("_", " ").capitalize()
+
+
+# Umbrales para considerar un tema "dominado" en el mapa de progreso.
+GRAMMAR_MASTERY_MIN_ATTEMPTS = 6
+GRAMMAR_MASTERY_MIN_ACCURACY = 0.8
+
+
+def build_grammar_progress(chat_id: int, mode: str) -> dict:
+    """Mapa de progreso del temario del nivel del perfil.
+
+    Cada tema queda en uno de tres estados:
+      - not_started: nunca ha salido en una lección de este perfil.
+      - in_progress: ya lo ha visto pero aún no lo domina.
+      - mastered: suficientes intentos y precisión alta.
+    """
+    cfg = MODES[mode]
+    level = cfg["level"]
+    slugs = LEVEL_CURRICULUM.get(level, [])
+
+    stats: dict[str, dict] = {}
+    with db_cursor() as cur:
+        cur.execute(
+            """
+            SELECT l.topic,
+                   COUNT(a.id) AS attempts,
+                   COALESCE(SUM(CASE WHEN a.is_correct THEN 1 ELSE 0 END), 0) AS correct,
+                   COUNT(DISTINCT l.id) AS lessons
+            FROM grammar_lessons l
+            LEFT JOIN grammar_attempts a ON a.lesson_id = l.id
+            WHERE l.chat_id = %s
+            GROUP BY l.topic
+            """,
+            (chat_id,),
+        )
+        for r in cur.fetchall():
+            stats[r["topic"]] = dict(r)
+
+    topics = []
+    counts = {"mastered": 0, "in_progress": 0, "not_started": 0}
+    for slug in slugs:
+        s = stats.get(slug)
+        attempts = int(s["attempts"]) if s else 0
+        correct = int(s["correct"]) if s else 0
+        accuracy = round(correct / attempts * 100) if attempts else 0
+        if not s:
+            status = "not_started"
+        elif attempts >= GRAMMAR_MASTERY_MIN_ATTEMPTS and (correct / attempts) >= GRAMMAR_MASTERY_MIN_ACCURACY:
+            status = "mastered"
+        else:
+            status = "in_progress"
+        counts[status] += 1
+        topics.append({
+            "slug": slug,
+            "label": grammar_topic_label(slug),
+            "status": status,
+            "attempts": attempts,
+            "correct": correct,
+            "accuracy": accuracy,
+        })
+
+    return {
+        "level": level,
+        "mode": mode,
+        "summary": {"total": len(slugs), **counts},
+        "topics": topics,
+    }
 
 
 def regenerate_exercises_for_lesson(chat_id: int, mode: str, lesson_id: int) -> dict:
@@ -1509,6 +1700,10 @@ class RegenerateItem(BaseModel):
     lesson_id: int
 
 
+class PracticeItem(BaseModel):
+    topic: str
+
+
 @app.get("/api/grammar/today")
 async def grammar_today(mode: str):
     if mode not in MODES:
@@ -1571,6 +1766,34 @@ async def grammar_regenerate(mode: str, item: RegenerateItem):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"No se pudieron regenerar los ejercicios: {e}")
+
+
+@app.get("/api/grammar/progress")
+async def grammar_progress(mode: str):
+    """Mapa de progreso del temario para el perfil (semáforo + resumen)."""
+    if mode not in MODES:
+        raise HTTPException(status_code=400, detail="Modo desconocido")
+    chat_id = web_chat_id(mode)
+    ensure_chat(chat_id)
+    try:
+        return build_grammar_progress(chat_id, mode)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"No se pudo calcular el progreso: {e}")
+
+
+@app.post("/api/grammar/practice")
+async def grammar_practice(mode: str, item: PracticeItem):
+    """Genera y devuelve una lección para un tema concreto del temario."""
+    if mode not in MODES:
+        raise HTTPException(status_code=400, detail="Modo desconocido")
+    chat_id = web_chat_id(mode)
+    ensure_chat(chat_id)
+    try:
+        return create_practice_lesson(chat_id, mode, item.topic)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"No se pudo preparar la práctica: {e}")
 
 
 # ---------------------------- Vocab endpoints ------------------------------

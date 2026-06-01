@@ -533,6 +533,89 @@ html, body {
   padding: 0.7rem 1.1rem;
 }
 
+/* ---------- Progreso (mapa de temas) ---------- */
+.prog-summary {
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 1rem 1.1rem;
+  margin-bottom: 1rem;
+}
+.prog-headline {
+  font-size: 1.25rem;
+  font-weight: 700;
+  margin-bottom: 0.7rem;
+}
+.prog-bar {
+  height: 10px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.prog-bar-fill {
+  height: 100%;
+  background: #4ade80;
+  border-radius: 6px;
+  transition: width 0.4s ease;
+}
+.prog-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 1rem;
+  margin-top: 0.7rem;
+  font-size: 0.82rem;
+  color: var(--text-dim, #9aa);
+}
+.prog-legend span { display: inline-flex; align-items: center; gap: 0.35rem; }
+.prog-dot {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+  display: inline-block;
+  background: #6b7280;
+}
+.prog-dot.mastered { background: #4ade80; }
+.prog-dot.in_progress { background: #facc15; }
+.prog-dot.not_started { background: #6b7280; }
+.prog-list { display: flex; flex-direction: column; gap: 0.5rem; }
+.prog-topic {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 0.7rem 0.85rem;
+}
+.prog-topic .prog-dot { margin-top: 0; }
+.prog-topic-info { flex: 1; min-width: 0; }
+.prog-topic-name {
+  font-size: 0.98rem;
+  font-weight: 600;
+  line-height: 1.25;
+}
+.prog-topic-meta {
+  font-size: 0.78rem;
+  color: var(--text-dim, #9aa);
+  margin-top: 0.15rem;
+}
+.prog-practice {
+  flex: 0 0 auto;
+  background: transparent;
+  color: var(--mc-color, var(--accent));
+  border: 1.5px solid var(--mc-color, var(--accent));
+  border-radius: 9px;
+  padding: 0.45rem 0.8rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.prog-practice:hover { background: var(--mc-color, var(--accent)); color: #fff; }
+.prog-practice:disabled { opacity: 0.6; cursor: default; }
+
 /* ---------- Responsive ---------- */
 @media (min-width: 700px) {
   .orb { width: 280px; height: 280px; }

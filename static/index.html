@@ -13,7 +13,7 @@
   <link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
   <link rel="icon" type="image/png" sizes="32x32" href="/static/favicon-32.png">
   <link rel="icon" type="image/png" sizes="192x192" href="/static/icon-192.png">
-  <link rel="stylesheet" href="/static/styles.css?v=16">
+  <link rel="stylesheet" href="/static/styles.css?v=17">
 </head>
 <body>
   <main id="app">
@@ -60,6 +60,14 @@
           </div>
           <div class="act-arrow">→</div>
         </button>
+        <button class="activity-card" id="actProgress">
+          <div class="act-icon">📊</div>
+          <div class="act-info">
+            <div class="act-name">Mi progreso</div>
+            <div class="act-sub">Mapa de temas de gramática</div>
+          </div>
+          <div class="act-arrow">→</div>
+        </button>
       </div>
     </section>
 
@@ -93,6 +101,21 @@
       </div>
     </section>
 
+    <!-- Pantalla de progreso (mapa de temas) -->
+    <section id="progress" class="screen">
+      <header class="conv-header">
+        <button class="back-btn" id="progBackBtn" aria-label="Volver">←</button>
+        <div class="conv-title">
+          <h2 id="progLabel">Mi progreso</h2>
+          <span class="status-pill" id="progStatus">Cargando…</span>
+        </div>
+        <span class="back-btn" style="visibility:hidden">←</span>
+      </header>
+      <div class="grammar-body" id="progressBody">
+        <div class="grammar-loading">Calculando tu progreso…</div>
+      </div>
+    </section>
+
     <!-- Pantalla de conversación -->
     <section id="conversation" class="screen">
       <header class="conv-header">
@@ -116,7 +139,7 @@
     </section>
   </main>
 
-  <script type="module" src="/static/app.js?v=16"></script>
+  <script type="module" src="/static/app.js?v=17"></script>
   <script>
     if ("serviceWorker" in navigator) {
       window.addEventListener("load", () => {

@@ -1,0 +1,1 @@
+- [grammar_lessons daily vs practice](grammar-lessons-daily-vs-practice.md) — daily and "Practicar" lessons must stay on separate partial unique indexes (is_practice), never one combined index.

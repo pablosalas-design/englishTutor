@@ -52,6 +52,13 @@ const els = {
   vocabLabel: document.getElementById("vocabLabel"),
   vocabStatus: document.getElementById("vocabStatus"),
   vocabBackBtn: document.getElementById("vocabBackBtn"),
+  // Progress (mapa de temas)
+  actProgress: document.getElementById("actProgress"),
+  progress: document.getElementById("progress"),
+  progressBody: document.getElementById("progressBody"),
+  progLabel: document.getElementById("progLabel"),
+  progStatus: document.getElementById("progStatus"),
+  progBackBtn: document.getElementById("progBackBtn"),
 };
 
 // ---------- Boot ----------
@@ -132,6 +139,9 @@ els.actGrammar.addEventListener("click", () => guardClick(() => {
 }));
 els.actVocab.addEventListener("click", () => guardClick(() => {
   if (state.mode) startVocab(state.mode);
+}));
+els.actProgress.addEventListener("click", () => guardClick(() => {
+  if (state.mode) startProgress(state.mode);
 }));
 
 // ---------- Conversation lifecycle ----------
@@ -565,6 +575,114 @@ function escapeHtml(s) {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
+}
+
+// ---------- Progreso (mapa de temas) ----------
+
+els.progBackBtn.addEventListener("click", () => showScreen("subpicker"));
+
+async function startProgress(mode) {
+  els.progLabel.textContent = mode.label;
+  els.progStatus.textContent = "Cargando…";
+  els.progressBody.innerHTML = '<div class="grammar-loading">Calculando tu progreso…</div>';
+  els.app.style.setProperty("--mc-color", mode.color);
+  document.documentElement.style.setProperty("--mc-color", mode.color);
+  showScreen("progress");
+
+  try {
+    const r = await fetch(`/api/grammar/progress?mode=${encodeURIComponent(mode.id)}`);
+    if (!r.ok) {
+      const txt = await r.text();
+      throw new Error(`HTTP ${r.status}: ${txt.slice(0, 200)}`);
+    }
+    const data = await r.json();
+    els.progStatus.textContent = data.level || "";
+    renderProgress(data);
+  } catch (err) {
+    console.error("[progress] load failed", err);
+    els.progStatus.textContent = "Error";
+    els.progressBody.innerHTML = `
+      <div class="grammar-loading">
+        No se pudo cargar tu progreso.<br><br>
+        <button class="gram-cta secondary" id="retryProgBtn">Reintentar</button>
+      </div>`;
+    document.getElementById("retryProgBtn").addEventListener("click", () => startProgress(mode));
+  }
+}
+
+function renderProgress(data) {
+  const s = data.summary;
+  const pct = s.total ? Math.round((s.mastered / s.total) * 100) : 0;
+
+  const rows = data.topics.map(t => {
+    const meta = t.attempts > 0
+      ? `${t.accuracy}% de aciertos · ${t.attempts} intentos`
+      : "Aún sin practicar";
+    return `
+      <div class="prog-topic">
+        <span class="prog-dot ${t.status}"></span>
+        <div class="prog-topic-info">
+          <div class="prog-topic-name">${escapeHtml(t.label)}</div>
+          <div class="prog-topic-meta">${escapeHtml(meta)}</div>
+        </div>
+        <button class="prog-practice" data-topic="${escapeHtml(t.slug)}">Practicar</button>
+      </div>`;
+  }).join("");
+
+  els.progressBody.innerHTML = `
+    <div class="prog-summary">
+      <div class="prog-headline">Dominados ${s.mastered} / ${s.total}</div>
+      <div class="prog-bar"><div class="prog-bar-fill" style="width:${pct}%"></div></div>
+      <div class="prog-legend">
+        <span><span class="prog-dot mastered"></span>${s.mastered} dominados</span>
+        <span><span class="prog-dot in_progress"></span>${s.in_progress} en práctica</span>
+        <span><span class="prog-dot not_started"></span>${s.not_started} sin empezar</span>
+      </div>
+    </div>
+    <div class="prog-list">${rows}</div>
+  `;
+  els.progressBody.scrollTop = 0;
+  els.progressBody.querySelectorAll(".prog-practice").forEach(btn => {
+    btn.addEventListener("click", () => practiceTopic(btn.dataset.topic, btn));
+  });
+}
+
+async function practiceTopic(topic, btn) {
+  if (!state.mode) return;
+  if (btn) { btn.disabled = true; btn.textContent = "Preparando…"; }
+  // Reutilizamos la pantalla de gramática para la lección de práctica.
+  els.gramLabel.textContent = state.mode.label;
+  els.gramStatus.textContent = "Preparando…";
+  els.grammarBody.innerHTML = '<div class="grammar-loading">Preparando tu práctica…</div>';
+  showScreen("grammar");
+  state.lesson = null;
+  state.exerciseIdx = 0;
+  state.correctCount = 0;
+
+  try {
+    const r = await fetch(`/api/grammar/practice?mode=${encodeURIComponent(state.mode.id)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ topic }),
+    });
+    if (!r.ok) {
+      const txt = await r.text();
+      throw new Error(`HTTP ${r.status}: ${txt.slice(0, 200)}`);
+    }
+    const lesson = await r.json();
+    state.lesson = lesson;
+    els.gramStatus.textContent = lesson.level || "";
+    renderLessonIntro();
+  } catch (err) {
+    console.error("[practice] load failed", err);
+    els.gramStatus.textContent = "Error";
+    els.grammarBody.innerHTML = `
+      <div class="grammar-loading">
+        No se pudo preparar la práctica.<br><br>
+        <button class="gram-cta secondary" id="backProgBtn">Volver al mapa</button>
+      </div>`;
+    document.getElementById("backProgBtn").addEventListener("click", () => startProgress(state.mode));
+  }
 }
 
 // ---------- Vocabulary ----------
