@@ -549,6 +549,7 @@ LEVEL_CURRICULUM: dict[str, list[str]] = {
         "used_to_be_used_to_get_used_to",
         "causative_have_get",
         # Tenses
+        "present_perfect_simple_vs_continuous",       # I've worked vs I've been working
         "future_continuous",                         # I'll be working at 5pm
         "future_perfect",
         "past_perfect_continuous",
@@ -785,6 +786,7 @@ TOPIC_LABELS: dict[str, str] = {
     "wish_if_only": "wish / if only",
     "used_to_be_used_to_get_used_to": "used to / be used to / get used to",
     "causative_have_get": "Causativo (have/get something done)",
+    "present_perfect_simple_vs_continuous": "Presente perfecto simple vs continuo",
     "future_continuous": "Futuro continuo",
     "future_perfect": "Futuro perfecto",
     "past_perfect_continuous": "Pasado perfecto continuo",
