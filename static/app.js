@@ -102,7 +102,7 @@ function initials(label) {
 
 // Plan por perfil para mostrar números reales en las tarjetas (debe coincidir con el backend).
 const SUBPICKER_COUNTS = {
-  peace:  { grammar: 10, vocabNew: 5, vocabRev: 10 },
+  peace:  { grammar: 15, vocabNew: 5, vocabRev: 10 },
   lucia:  { grammar: 5,  vocabNew: 3, vocabRev: 6 },
   leyre:  { grammar: 5,  vocabNew: 3, vocabRev: 6 },
 };

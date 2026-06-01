@@ -1,4 +1,4 @@
-const CACHE_NAME = "tutor-shell-v14";
+const CACHE_NAME = "tutor-shell-v15";
 
 // Recursos del "shell" que pre-cacheamos en el install (para que la app abra offline).
 const SHELL = [

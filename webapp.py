@@ -620,10 +620,10 @@ def utc_today() -> date:
     return datetime.now(timezone.utc).date()
 
 
-# Ejercicios por perfil. Peace (adulto): 10 (6 mc + 4 fill).
+# Ejercicios por perfil. Peace (adulto): 15 (9 mc + 6 fill).
 # Niñas (Lucía/Leyre): 5 (3 mc + 2 fill).
 EXERCISE_PLAN_BY_MODE: dict[str, dict[str, int]] = {
-    "peace":  {"num_mc": 6, "num_fill": 4},
+    "peace":  {"num_mc": 9, "num_fill": 6},
     "lucia":  {"num_mc": 3, "num_fill": 2},
     "leyre":  {"num_mc": 3, "num_fill": 2},
 }
