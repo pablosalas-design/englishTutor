@@ -64,8 +64,10 @@ Flow: persona picker → activity picker (`Hablar` / `Gramática`) → voice scr
 
 - `GET /api/vocab/today?mode={peace|lucia|leyre}` returns today's vocab session: `{level, mode, study, reviews_count, exercises, totals}`.
   - `study`: NEW phrasal verbs the user has never seen, capped at the per-mode plan (peace=5/day, kids=3/day).
-  - `exercises`: meaning-MC quiz built from the new ones + due reviews (max reviews per mode: peace=10, kids=6). Distractors are random meanings from other phrasal verbs at the same level.
-- `POST /api/vocab/answer?mode=...` body `{phrasal_id, user_answer}` re-evaluates correctness on the server (compares against `phrasal_verbs.meaning_es`) and updates the Leitner box for that `(chat_id, phrasal_id)` pair. Intervals (days): box1=1, box2=3, box3=7, box4=14, box5=30. Correct → box+1 (max 5). Wrong → box=1.
+  - `exercises`: quiz built from the new ones + due reviews (max reviews per mode: peace=10, kids=6). Two exercise types are mixed: `meaning_mc` (choose the Spanish meaning) and `phrasal_write` (writing: a cloze English sentence + Spanish hint, user types the phrasal verb). Distractors are random meanings from other phrasal verbs at the same level.
+  - Exercise count: peace targets `target_exercises`=15 per session (in `VOCAB_PLAN_BY_MODE`); when there aren't enough unique items, `build_vocab_exercises` builds both an MC and a write variant per phrasal and repeats to reach the target. Kids have no target → 1 exercise per item (new + due reviews).
+  - `phrasal_write` answers are checked server-side with `normalize_phrasal_text` (lowercase, strip punctuation, collapse spaces) against `phrasal_verbs.phrasal`. The cloze is built by `make_cloze_for_phrasal` (handles common verb forms: -s/-ed/-ing/-ies); if no form is found in any example, that phrasal falls back to MC.
+- `POST /api/vocab/answer?mode=...` body `{phrasal_id, user_answer, exercise_type}` re-evaluates correctness on the server (for `meaning_mc` compares against `phrasal_verbs.meaning_es`; for `phrasal_write` normalizes and compares against `phrasal_verbs.phrasal`) and updates the Leitner box for that `(chat_id, phrasal_id)` pair. Intervals (days): box1=1, box2=3, box3=7, box4=14, box5=30. Correct → box+1 (max 5). Wrong → box=1.
 - `MODE_TO_VOCAB_LEVEL`: `peace`→`B2-C1`, `lucia`/`leyre`→`A2-B1`.
 - Pool seeding is **lazy and per-level**:
   - On first `/api/vocab/today` for an unseen level, generates a `VOCAB_SEED_BATCH` (=40) using `gpt-4o-mini` with structured JSON output. ~30s, costs cents.

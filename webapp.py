@@ -854,9 +854,9 @@ MODE_TO_VOCAB_LEVEL = {
 
 # Cuántos phrasal verbs nuevos por sesión (perfil) y cuántos repasos máximo.
 VOCAB_PLAN_BY_MODE = {
-    "peace": {"new": 5, "max_reviews": 10, "exercises_per_item": 1},
-    "lucia": {"new": 3, "max_reviews": 6, "exercises_per_item": 1},
-    "leyre": {"new": 3, "max_reviews": 6, "exercises_per_item": 1},
+    "peace": {"new": 5, "max_reviews": 10, "target_exercises": 15},
+    "lucia": {"new": 3, "max_reviews": 6},
+    "leyre": {"new": 3, "max_reviews": 6},
 }
 
 # Intervalos Leitner (días) por caja: caja 1 = mañana, caja 5 = en un mes.
@@ -1258,23 +1258,48 @@ def build_phrasal_write_exercise(it: dict, level: str) -> dict | None:
     }
 
 
-def build_vocab_exercises(items: list[dict], level: str) -> list[dict]:
-    """Para cada phrasal de la sesión, construye 1 ejercicio. Mezcla MC y escritura."""
+def build_vocab_exercises(items: list[dict], level: str, target: int | None = None) -> list[dict]:
+    """Construye ejercicios mezclando elección múltiple y escritura.
+
+    Genera ambas variantes (MC + escritura, si hay hueco posible) por cada phrasal,
+    y devuelve hasta `target` ejercicios. Si hay menos variantes únicas que `target`,
+    repite phrasals para completar (útil para sesiones cortas con pocos items nuevos).
+    Si `target` es None, devuelve 1 ejercicio por phrasal (comportamiento clásico).
+    """
     if not items:
         return []
     item_ids = [it["id"] for it in items]
-    exercises: list[dict] = []
-    for idx, it in enumerate(items):
-        # Alternamos: pares MC, impares writing (con fallback a MC si no hay cloze posible).
-        prefer_write = (idx % 2 == 1)
-        ex = None
-        if prefer_write:
-            ex = build_phrasal_write_exercise(it, level)
-        if ex is None:
-            ex = build_meaning_mc_exercise(it, level, item_ids)
-        exercises.append(ex)
-    random.shuffle(exercises)
-    return exercises
+
+    if target is None:
+        exercises: list[dict] = []
+        for idx, it in enumerate(items):
+            prefer_write = (idx % 2 == 1)
+            ex = build_phrasal_write_exercise(it, level) if prefer_write else None
+            if ex is None:
+                ex = build_meaning_mc_exercise(it, level, item_ids)
+            exercises.append(ex)
+        random.shuffle(exercises)
+        return exercises
+
+    # Pool con ambas variantes por phrasal (sin duplicar phrasal+tipo).
+    pool: list[dict] = []
+    for it in items:
+        pool.append(build_meaning_mc_exercise(it, level, item_ids))
+        wr = build_phrasal_write_exercise(it, level)
+        if wr:
+            pool.append(wr)
+    random.shuffle(pool)
+
+    if len(pool) >= target:
+        return pool[:target]
+
+    # No hay suficientes variantes únicas: completamos repitiendo del pool.
+    out = list(pool)
+    if pool:
+        while len(out) < target:
+            out.append(random.choice(pool))
+    random.shuffle(out)
+    return out[:target]
 
 
 def build_today_vocab_session(chat_id: int, mode: str) -> dict:
@@ -1289,7 +1314,8 @@ def build_today_vocab_session(chat_id: int, mode: str) -> dict:
 
     # Mezclamos new + reviews para los ejercicios; el bloque "study" sólo lleva los nuevos.
     practice_items = new_items + reviews
-    exercises = build_vocab_exercises(practice_items, level)
+    target = plan.get("target_exercises")
+    exercises = build_vocab_exercises(practice_items, level, target=target)
 
     return {
         "level": level,
