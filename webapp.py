@@ -543,6 +543,7 @@ LEVEL_CURRICULUM: dict[str, list[str]] = {
         "subjunctive_suggest_recommend_insist",      # I suggest (that) he be / go...
         # Emphasis & inversion
         "inversion_negative_adverbials",             # hardly... when, no sooner, never have I...
+        "conditional_inversion",                     # Had I known... / Were I to... / Should you need...
         "cleft_sentences",                           # It was X that..., What I need is...
         "emphasis_do_does_did",                      # I do like it
         # Wish, used to, causative
@@ -559,6 +560,7 @@ LEVEL_CURRICULUM: dict[str, list[str]] = {
         "linkers_advanced",                          # whereas, although, despite, however
         "linkers_purpose_result",                    # so that, in order to, such... that, so... that
         "so_such_too_enough",
+        "quantifiers_advanced",                      # few/a few, little/a little, plenty of, hardly any
         "question_tags",
         # Other
         "participle_clauses",                        # Walking home, I saw...
@@ -783,6 +785,7 @@ TOPIC_LABELS: dict[str, str] = {
     "gerunds_vs_infinitives": "Gerundio vs infinitivo",
     "subjunctive_suggest_recommend_insist": "Subjuntivo (suggest/recommend/insist)",
     "inversion_negative_adverbials": "Inversión con adverbios negativos",
+    "conditional_inversion": "Inversión condicional (Had I known…)",
     "cleft_sentences": "Oraciones enfáticas (cleft)",
     "emphasis_do_does_did": "Énfasis con do/does/did",
     "wish_if_only": "wish / if only",
@@ -796,6 +799,7 @@ TOPIC_LABELS: dict[str, str] = {
     "linkers_advanced": "Conectores avanzados",
     "linkers_purpose_result": "Conectores de propósito y resultado",
     "so_such_too_enough": "so / such / too / enough",
+    "quantifiers_advanced": "Cuantificadores avanzados (few/a few, little/a little…)",
     "question_tags": "Question tags",
     "participle_clauses": "Cláusulas de participio",
     "articles_advanced": "Artículos (avanzado)",
