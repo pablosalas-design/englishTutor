@@ -122,6 +122,21 @@ function openSubpicker(mode) {
   showScreen("subpicker");
 }
 
+async function refreshProgressCount(mode, progSub) {
+  if (!progSub) return;
+  try {
+    const r = await fetch(`/api/grammar/progress?mode=${encodeURIComponent(mode.id)}`);
+    if (!r.ok) return;
+    const data = await r.json();
+    const s = data.summary;
+    if (state.mode && state.mode.id === mode.id && s && typeof s.total === "number") {
+      progSub.textContent = `${s.mastered} / ${s.total} temas dominados`;
+    }
+  } catch {
+    /* deja el texto por defecto si falla */
+  }
+}
+
 els.subBackBtn.addEventListener("click", () => showScreen("picker"));
 
 let activityClickGuard = false;
@@ -292,6 +307,9 @@ async function saveTranscript(role, content) {
 function showScreen(name) {
   for (const s of document.querySelectorAll(".screen")) s.classList.remove("active");
   document.getElementById(name).classList.add("active");
+  if (name === "subpicker" && state.mode) {
+    refreshProgressCount(state.mode, els.actProgress.querySelector(".act-sub"));
+  }
 }
 
 function setOrb(stateName) {
