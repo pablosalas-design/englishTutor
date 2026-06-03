@@ -206,6 +206,27 @@ def init_db_vocab():
             );
             CREATE INDEX IF NOT EXISTS idx_phrasal_progress_chat
               ON phrasal_progress(chat_id, next_due_at);
+
+            CREATE TABLE IF NOT EXISTS user_words (
+              id SERIAL PRIMARY KEY,
+              chat_id BIGINT NOT NULL,        -- web_chat_id por perfil (-1001/-1002/-1003)
+              word TEXT NOT NULL,             -- forma normalizada en minúsculas (para deduplicar)
+              display TEXT NOT NULL,          -- tal como la escribió el usuario
+              meaning_es TEXT NOT NULL,       -- significado en español
+              definition_en TEXT,             -- definición corta en inglés
+              examples JSONB NOT NULL DEFAULT '[]', -- [{"en": "...", "es": "..."}, ...]
+              box INTEGER NOT NULL DEFAULT 1, -- 1..5 (Leitner)
+              times_seen INTEGER NOT NULL DEFAULT 0,
+              times_correct INTEGER NOT NULL DEFAULT 0,
+              source TEXT NOT NULL DEFAULT 'telegram',
+              created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+              first_seen_at TIMESTAMPTZ DEFAULT NOW(),
+              last_seen_at TIMESTAMPTZ,
+              next_due_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+              UNIQUE(chat_id, word)
+            );
+            CREATE INDEX IF NOT EXISTS idx_user_words_chat
+              ON user_words(chat_id, next_due_at);
         """)
 
 
@@ -1576,6 +1597,226 @@ def update_phrasal_progress(chat_id: int, phrasal_id: int, is_correct: bool) -> 
 
 
 # ----------------------------------------------------------------------------
+# "Mis palabras" — lista personal de vocabulario (alimentada desde Telegram)
+# ----------------------------------------------------------------------------
+
+def fetch_user_words_due(chat_id: int, limit: int) -> list[dict]:
+    """Palabras cuyo repaso ya vence (next_due_at <= ahora)."""
+    with db_cursor() as cur:
+        cur.execute(
+            """
+            SELECT id, word, display, meaning_es, definition_en, examples,
+                   box, times_seen, times_correct
+            FROM user_words
+            WHERE chat_id = %s AND times_seen > 0 AND next_due_at <= NOW()
+            ORDER BY next_due_at ASC
+            LIMIT %s
+            """,
+            (chat_id, limit),
+        )
+        return [dict(r) for r in cur.fetchall()]
+
+
+def fetch_user_words_new(chat_id: int, limit: int) -> list[dict]:
+    """Palabras recién añadidas que aún no se han practicado (times_seen = 0)."""
+    with db_cursor() as cur:
+        cur.execute(
+            """
+            SELECT id, word, display, meaning_es, definition_en, examples,
+                   box, times_seen, times_correct
+            FROM user_words
+            WHERE chat_id = %s AND times_seen = 0
+            ORDER BY created_at DESC
+            LIMIT %s
+            """,
+            (chat_id, limit),
+        )
+        return [dict(r) for r in cur.fetchall()]
+
+
+def count_user_words(chat_id: int) -> dict:
+    with db_cursor() as cur:
+        cur.execute(
+            """
+            SELECT
+              COUNT(*) AS total,
+              COUNT(*) FILTER (WHERE next_due_at <= NOW()) AS due,
+              COUNT(*) FILTER (WHERE times_seen = 0) AS new
+            FROM user_words WHERE chat_id = %s
+            """,
+            (chat_id,),
+        )
+        row = cur.fetchone()
+        return {
+            "total": int(row["total"]),
+            "due": int(row["due"]),
+            "new": int(row["new"]),
+        }
+
+
+def fetch_user_word_distractors(
+    chat_id: int, exclude_ids: list[int], exclude_meanings: list[str], n: int = 3
+) -> list[str]:
+    """Significados (es) de OTRAS palabras del mismo usuario, como distractores."""
+    safe_ids = list(exclude_ids) if exclude_ids else [-1]
+    with db_cursor() as cur:
+        cur.execute(
+            """
+            SELECT meaning_es FROM user_words
+            WHERE chat_id = %s AND id <> ALL(%s)
+            ORDER BY random()
+            LIMIT 30
+            """,
+            (chat_id, safe_ids),
+        )
+        rows = [r["meaning_es"] for r in cur.fetchall()]
+    seen = {m for m in (exclude_meanings or []) if m}
+    out: list[str] = []
+    for m in rows:
+        if m and m not in seen:
+            out.append(m)
+            seen.add(m)
+        if len(out) >= n:
+            break
+    return out
+
+
+def build_myword_mc_exercise(it: dict, chat_id: int, item_ids: list[int]) -> dict:
+    correct = it["meaning_es"]
+    distractors = fetch_user_word_distractors(chat_id, item_ids, [correct], n=3)
+    seen = {correct, *distractors}
+    for g in GENERIC_DISTRACTORS:
+        if len(distractors) >= 3:
+            break
+        if g not in seen:
+            distractors.append(g)
+            seen.add(g)
+    options = [correct] + distractors[:3]
+    random.shuffle(options)
+    return {
+        "word_id": it["id"],
+        "word": it["display"],
+        "type": "meaning_mc",
+        "question": f"What does \"{it['display']}\" mean?",
+        "options": options,
+        "correct": correct,
+        "explanation": it.get("definition_en", "") or "",
+        "examples": it.get("examples", []) or [],
+    }
+
+
+def build_myword_write_exercise(it: dict) -> dict:
+    examples = it.get("examples") or []
+    cloze = None
+    for ex in examples:
+        en = (ex or {}).get("en", "") if isinstance(ex, dict) else ""
+        c = make_cloze_for_phrasal(en, it["word"])
+        if c:
+            cloze = c
+            break
+    return {
+        "word_id": it["id"],
+        "word": it["display"],
+        "type": "word_write",
+        "instruction": "Escribe la palabra o expresión en inglés. Pista en español:",
+        "hint_es": it["meaning_es"],
+        "cloze_en": cloze or "",
+        "correct": it["display"],
+        "explanation": it.get("definition_en", "") or "",
+        "examples": examples,
+    }
+
+
+def build_mywords_exercises(items: list[dict], chat_id: int, target: int | None = None) -> list[dict]:
+    """Mezcla ejercicios de elección múltiple y de escritura para la lista personal."""
+    if not items:
+        return []
+    item_ids = [it["id"] for it in items]
+
+    if target is None:
+        exercises: list[dict] = []
+        for idx, it in enumerate(items):
+            ex = (
+                build_myword_write_exercise(it)
+                if idx % 2 == 1
+                else build_myword_mc_exercise(it, chat_id, item_ids)
+            )
+            exercises.append(ex)
+        random.shuffle(exercises)
+        return exercises
+
+    pool: list[dict] = []
+    for it in items:
+        pool.append(build_myword_mc_exercise(it, chat_id, item_ids))
+        pool.append(build_myword_write_exercise(it))
+    random.shuffle(pool)
+    if len(pool) >= target:
+        return pool[:target]
+    out = list(pool)
+    if pool:
+        while len(out) < target:
+            out.append(random.choice(pool))
+    random.shuffle(out)
+    return out[:target]
+
+
+def build_today_mywords_session(chat_id: int, mode: str) -> dict:
+    """Sesión de hoy de Mis palabras: nuevas para estudiar + repasos vencidos + ejercicios."""
+    plan = vocab_plan_for(mode)
+    counts = count_user_words(chat_id)
+
+    new_items = fetch_user_words_new(chat_id, plan["new"])
+    reviews = fetch_user_words_due(chat_id, plan["max_reviews"])
+    seen_ids = {it["id"] for it in new_items}
+    reviews = [r for r in reviews if r["id"] not in seen_ids]
+
+    practice_items = new_items + reviews
+    target = plan.get("target_exercises")
+    exercises = build_mywords_exercises(practice_items, chat_id, target=target)
+
+    return {
+        "mode": mode,
+        "study": new_items,
+        "reviews_count": len(reviews),
+        "exercises": exercises,
+        "totals": {
+            "new": len(new_items),
+            "reviews": len(reviews),
+            "exercises": len(exercises),
+            "all": counts["total"],
+        },
+    }
+
+
+def update_user_word_progress(chat_id: int, word_id: int, is_correct: bool) -> dict:
+    """Actualiza la caja Leitner de una palabra personal. Devuelve el progreso."""
+    with db_cursor() as cur:
+        cur.execute(
+            """
+            UPDATE user_words SET
+              box = LEAST(5, GREATEST(1, CASE WHEN %s THEN box + 1 ELSE 1 END)),
+              times_seen = times_seen + 1,
+              times_correct = times_correct + CASE WHEN %s THEN 1 ELSE 0 END,
+              last_seen_at = NOW(),
+              next_due_at = NOW() + (
+                CASE LEAST(5, GREATEST(1, CASE WHEN %s THEN box + 1 ELSE 1 END))
+                  WHEN 1 THEN INTERVAL '1 day'
+                  WHEN 2 THEN INTERVAL '3 days'
+                  WHEN 3 THEN INTERVAL '7 days'
+                  WHEN 4 THEN INTERVAL '14 days'
+                  ELSE INTERVAL '30 days'
+                END
+              )
+            WHERE chat_id = %s AND id = %s
+            RETURNING box, times_seen, times_correct, next_due_at
+            """,
+            (is_correct, is_correct, is_correct, chat_id, word_id),
+        )
+        row = cur.fetchone()
+        return dict(row) if row else {}
+
+
+# ----------------------------------------------------------------------------
 # FastAPI app
 # ----------------------------------------------------------------------------
 
@@ -1856,6 +2097,89 @@ async def vocab_answer(mode: str, item: VocabAnswerItem):
         "is_correct": is_correct,
         "correct_meaning": row["meaning_es"],
         "correct_phrasal": row["phrasal"],
+        "progress": progress,
+    }
+
+
+# ---------------------------- Mis palabras endpoints -----------------------
+
+class MyWordAnswerItem(BaseModel):
+    word_id: int
+    user_answer: str | None = None
+    exercise_type: str | None = "meaning_mc"  # "meaning_mc" o "word_write"
+
+
+@app.get("/api/mywords/today")
+async def mywords_today(mode: str):
+    if mode not in MODES:
+        raise HTTPException(status_code=400, detail="Modo desconocido")
+    chat_id = web_chat_id(mode)
+    ensure_chat(chat_id)
+    try:
+        return build_today_mywords_session(chat_id, mode)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"No se pudo preparar la sesión: {e}")
+
+
+@app.get("/api/mywords/list")
+async def mywords_list(mode: str):
+    """Resumen + lista completa de las palabras personales del perfil."""
+    if mode not in MODES:
+        raise HTTPException(status_code=400, detail="Modo desconocido")
+    chat_id = web_chat_id(mode)
+    ensure_chat(chat_id)
+    counts = count_user_words(chat_id)
+    with db_cursor() as cur:
+        cur.execute(
+            """
+            SELECT id, display, meaning_es, box, times_seen, times_correct,
+                   next_due_at, created_at
+            FROM user_words
+            WHERE chat_id = %s
+            ORDER BY created_at DESC
+            LIMIT 500
+            """,
+            (chat_id,),
+        )
+        words = []
+        for r in cur.fetchall():
+            d = dict(r)
+            d["next_due_at"] = d["next_due_at"].isoformat() if d.get("next_due_at") else None
+            d["created_at"] = d["created_at"].isoformat() if d.get("created_at") else None
+            words.append(d)
+    return {"totals": counts, "words": words}
+
+
+@app.post("/api/mywords/answer")
+async def mywords_answer(mode: str, item: MyWordAnswerItem):
+    """Evalúa en el servidor y actualiza la caja Leitner de esa palabra personal."""
+    if mode not in MODES:
+        raise HTTPException(status_code=400, detail="Modo desconocido")
+    chat_id = web_chat_id(mode)
+
+    with db_cursor() as cur:
+        cur.execute(
+            "SELECT id, word, display, meaning_es FROM user_words WHERE id = %s AND chat_id = %s",
+            (item.word_id, chat_id),
+        )
+        row = cur.fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Palabra no encontrada para este perfil")
+
+    user_ans = (item.user_answer or "").strip()
+    if (item.exercise_type or "meaning_mc") == "word_write":
+        is_correct = normalize_phrasal_text(user_ans) == normalize_phrasal_text(row["word"])
+    else:
+        is_correct = user_ans == (row["meaning_es"] or "").strip()
+
+    progress = update_user_word_progress(chat_id, item.word_id, is_correct)
+    if progress.get("next_due_at"):
+        progress["next_due_at"] = progress["next_due_at"].isoformat()
+    return {
+        "ok": True,
+        "is_correct": is_correct,
+        "correct_meaning": row["meaning_es"],
+        "correct_word": row["display"],
         "progress": progress,
     }
 

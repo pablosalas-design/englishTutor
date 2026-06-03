@@ -1,4 +1,6 @@
 import os
+import json
+import re
 import tempfile
 from collections import defaultdict, deque
 from datetime import datetime, time, timedelta, date
@@ -184,6 +186,26 @@ def init_db():
               sent_at TIMESTAMPTZ DEFAULT NOW(),
               UNIQUE(chat_id, week_start)
             );
+            CREATE TABLE IF NOT EXISTS user_words (
+              id SERIAL PRIMARY KEY,
+              chat_id BIGINT NOT NULL,        -- web_chat_id por perfil (-1001/-1002/-1003)
+              word TEXT NOT NULL,             -- forma normalizada en minúsculas (para deduplicar)
+              display TEXT NOT NULL,          -- tal como la escribió el usuario
+              meaning_es TEXT NOT NULL,       -- significado en español
+              definition_en TEXT,             -- definición corta en inglés
+              examples JSONB NOT NULL DEFAULT '[]', -- [{"en": "...", "es": "..."}, ...]
+              box INTEGER NOT NULL DEFAULT 1, -- 1..5 (Leitner)
+              times_seen INTEGER NOT NULL DEFAULT 0,
+              times_correct INTEGER NOT NULL DEFAULT 0,
+              source TEXT NOT NULL DEFAULT 'telegram',
+              created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+              first_seen_at TIMESTAMPTZ DEFAULT NOW(),
+              last_seen_at TIMESTAMPTZ,
+              next_due_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+              UNIQUE(chat_id, word)
+            );
+            CREATE INDEX IF NOT EXISTS idx_user_words_chat
+              ON user_words(chat_id, next_due_at);
         """)
 
 
@@ -491,6 +513,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• /peace — Peace 👩‍🏫, profesora para adultos.\n"
         "• /lucia — Mia ✨ para Lucía (11-13 años, A2).\n"
         "• /leyre — Mia ✨ para Leyre (11-13 años, A2).\n\n"
+        "*Vocabulario:*\n"
+        "• /add — añadir tus palabras o expresiones de clase a *Mis palabras* "
+        "(una por línea). Las repasas luego en la app.\n\n"
         "*Otros ajustes:*\n"
         "• /level — ver o cambiar tu nivel y objetivo (ej. `/level B2 C1`).\n"
         "• /british o /american — cambiar el acento.\n"
@@ -721,6 +746,194 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # ----------------------------------------------------------------------------
+# "Mis palabras" — añadir vocabulario personal con /add
+# ----------------------------------------------------------------------------
+
+# Debe coincidir con webapp.web_chat_id (puente bot <-> webapp por perfil).
+WEB_CHAT_IDS = {"peace": -1001, "lucia": -1002, "leyre": -1003}
+MODE_TO_VOCAB_LEVEL = {"peace": "B2-C1", "lucia": "A2-B1", "leyre": "A2-B1"}
+
+ADD_MAX_WORDS = 30  # tope por mensaje para controlar coste/tiempo
+
+
+def web_chat_id(mode: str) -> int:
+    return WEB_CHAT_IDS.get(mode, WEB_CHAT_IDS["peace"])
+
+
+def normalize_word(s: str) -> str:
+    """Igual que webapp.normalize_phrasal_text: minúsculas, sin puntuación, espacios colapsados."""
+    if not s:
+        return ""
+    s = s.lower().replace("-", " ").replace("'", "'").replace("’", "'")
+    for ch in [".", ",", ";", ":", "!", "?", '"', "(", ")"]:
+        s = s.replace(ch, " ")
+    return re.sub(r"\s+", " ", s).strip()
+
+
+def parse_add_words(text: str) -> list[str]:
+    """Extrae palabras/expresiones del mensaje /add (una por línea o separadas por comas)."""
+    if not text:
+        return []
+    # Quita el comando /add (y posible @nombredelbot) del principio.
+    text = re.sub(r"^\s*/add(@\w+)?\b", "", text, flags=re.IGNORECASE)
+    raw_parts: list[str] = []
+    for line in text.splitlines():
+        for piece in line.split(","):
+            piece = piece.strip(" \t-•*·")
+            if piece:
+                raw_parts.append(piece)
+    # Dedupe conservando orden, sin distinguir mayúsculas.
+    seen: set[str] = set()
+    out: list[str] = []
+    for p in raw_parts:
+        key = normalize_word(p)
+        if key and key not in seen:
+            seen.add(key)
+            out.append(p)
+        if len(out) >= ADD_MAX_WORDS:
+            break
+    return out
+
+
+def enrich_words(words: list[str], level: str) -> dict[str, dict]:
+    """Pide a GPT significado en español, definición en inglés y 2 ejemplos por palabra.
+
+    Devuelve un dict {forma_normalizada: {display, meaning_es, definition_en, examples}}.
+    """
+    if not words:
+        return {}
+    listado = "\n".join(f"- {w}" for w in words)
+    system = (
+        "Eres un lexicógrafo bilingüe inglés-español. Para cada palabra o expresión en "
+        "INGLÉS que te den, devuelve su significado en español, una definición corta en "
+        "inglés y DOS frases de ejemplo en inglés (cada una con su traducción al español). "
+        f"El alumno tiene un nivel {level}; ajusta la dificultad de los ejemplos. "
+        "Si una entrada está mal escrita, corrígela en 'display'. "
+        "Responde SOLO con JSON válido."
+    )
+    user = (
+        "Devuelve un objeto JSON con esta forma EXACTA:\n"
+        '{"items": [{"display": "<palabra/expresión en inglés>", '
+        '"meaning_es": "<significado breve en español>", '
+        '"definition_en": "<definición corta en inglés>", '
+        '"examples": [{"en": "<frase>", "es": "<traducción>"}, '
+        '{"en": "<frase>", "es": "<traducción>"}]}]}\n\n'
+        f"Palabras/expresiones:\n{listado}"
+    )
+    completion = client.chat.completions.create(
+        model="gpt-4o-mini",
+        response_format={"type": "json_object"},
+        messages=[
+            {"role": "system", "content": system},
+            {"role": "user", "content": user},
+        ],
+        temperature=0.4,
+    )
+    data = json.loads(completion.choices[0].message.content)
+    items = data.get("items", []) if isinstance(data, dict) else []
+    result: dict[str, dict] = {}
+    for it in items:
+        if not isinstance(it, dict):
+            continue
+        display = (it.get("display") or "").strip()
+        meaning_es = (it.get("meaning_es") or "").strip()
+        if not display or not meaning_es:
+            continue
+        examples = []
+        for ex in (it.get("examples") or [])[:2]:
+            if isinstance(ex, dict) and ex.get("en"):
+                examples.append({"en": str(ex["en"]).strip(), "es": str(ex.get("es", "")).strip()})
+        result[normalize_word(display)] = {
+            "display": display,
+            "meaning_es": meaning_es,
+            "definition_en": (it.get("definition_en") or "").strip(),
+            "examples": examples,
+        }
+    return result
+
+
+def insert_user_words(chat_id: int, enriched: dict[str, dict]) -> int:
+    """Inserta las palabras enriquecidas; devuelve cuántas eran NUEVAS (ON CONFLICT DO NOTHING)."""
+    added = 0
+    with db_cursor() as cur:
+        for word, info in enriched.items():
+            cur.execute(
+                """
+                INSERT INTO user_words
+                  (chat_id, word, display, meaning_es, definition_en, examples, source)
+                VALUES (%s, %s, %s, %s, %s, %s::jsonb, 'telegram')
+                ON CONFLICT (chat_id, word) DO NOTHING
+                """,
+                (
+                    chat_id,
+                    word,
+                    info["display"],
+                    info["meaning_es"],
+                    info.get("definition_en", ""),
+                    json.dumps(info.get("examples", [])),
+                ),
+            )
+            if cur.rowcount > 0:
+                added += 1
+    return added
+
+
+async def add_words(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.effective_chat.id
+    config = get_chat_config(chat_id)
+    mode = config["mode"]
+    target_chat = web_chat_id(mode)
+    profile_label = MODES[mode]["label"]
+
+    words = parse_add_words(update.message.text or "")
+    if not words:
+        await update.message.reply_text(
+            "Para añadir vocabulario a *Mis palabras*, escribe `/add` y luego tus palabras "
+            "o expresiones, una por línea (o separadas por comas). Por ejemplo:\n\n"
+            "`/add`\n`breakthrough`\n`to look forward to`\n`reluctant`\n\n"
+            "Las guardaré en el perfil activo ahora mismo (*" + profile_label + "*) y "
+            "aparecerán en la pestaña *Mis palabras* de la app.",
+            parse_mode="Markdown",
+        )
+        return
+
+    await context.bot.send_chat_action(chat_id=chat_id, action=ChatAction.TYPING)
+    level = MODE_TO_VOCAB_LEVEL.get(mode, "B2-C1")
+    try:
+        enriched = enrich_words(words, level)
+    except Exception:
+        await update.message.reply_text(
+            "Ups, no pude preparar esas palabras ahora mismo. ¿Lo intentamos de nuevo en un momento?"
+        )
+        return
+
+    if not enriched:
+        await update.message.reply_text(
+            "No conseguí entender esas palabras. ¿Puedes revisarlas y volver a intentarlo?"
+        )
+        return
+
+    try:
+        added = insert_user_words(target_chat, enriched)
+    except Exception:
+        await update.message.reply_text(
+            "Ups, tuve un problema guardando las palabras. ¿Lo intentamos otra vez?"
+        )
+        return
+
+    total = len(enriched)
+    already = total - added
+    lines = [f"✅ Añadí *{added}* palabra(s) nueva(s) a *Mis palabras* ({profile_label})."]
+    if already > 0:
+        lines.append(f"({already} ya las tenías guardadas.)")
+    sample = ", ".join(info["display"] for info in list(enriched.values())[:8])
+    if sample:
+        lines.append("\n" + sample)
+    lines.append("\nAbre la pestaña *Mis palabras* en la app para repasarlas.")
+    await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
+
+
+# ----------------------------------------------------------------------------
 # Bot setup
 # ----------------------------------------------------------------------------
 
@@ -738,6 +951,7 @@ def main():
     app.add_handler(CommandHandler("lucia", lucia))
     app.add_handler(CommandHandler("leyre", leyre))
     app.add_handler(CommandHandler("status", status))
+    app.add_handler(CommandHandler("add", add_words))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
     app.add_handler(MessageHandler(filters.VOICE | filters.AUDIO, handle_voice))
 

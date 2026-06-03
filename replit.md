@@ -82,9 +82,21 @@ Flow: persona picker → activity picker (`Hablar` / `Gramática`) → voice scr
   - Generation is idempotent thanks to `UNIQUE(level, phrasal)`.
 - DB tables: `phrasal_verbs` (level + phrasal verb + Spanish meaning + English definition + 2 examples) and `phrasal_progress` (per chat_id: box, times_seen, times_correct, last_seen_at, next_due_at).
 
+#### "Mis palabras" feature (personal vocab fed from Telegram)
+
+Pablo's own class vocabulary. Words are added via the Telegram bot and reviewed in the webapp with the same Leitner SRS as Vocabulario.
+
+- **Feeding (bot.py):** command `/add` (registered in `main()`; documented in `/start`). Reads the raw `update.message.text` (so it captures multiple lines, not just `context.args`), strips the `/add`/`@bot` token, splits by newlines AND commas, dedupes case-insensitively (via `normalize_word`, mirrors `normalize_phrasal_text`), caps at `ADD_MAX_WORDS`=30. Enriches each word with `gpt-4o-mini` (JSON mode, level-aware via `MODE_TO_VOCAB_LEVEL`) → `{display, meaning_es, definition_en, examples[{en,es}]}`. Inserts with `ON CONFLICT (chat_id, word) DO NOTHING`; replies a Spanish summary (added vs already-had). Stores under the active persona's `web_chat_id` (`WEB_CHAT_IDS` in bot.py = `peace:-1001, lucia:-1002, leyre:-1003`, must match webapp's `web_chat_id`) read from the chat's current `mode` — this is the bot↔webapp bridge that makes the words show up in the app tab.
+- **Review (webapp.py):**
+  - `GET /api/mywords/today?mode=` → `{mode, study[], reviews_count, exercises[], totals{new,reviews,exercises,all}}`. `study`: unseen words (`times_seen=0`), capped at the per-mode vocab plan's `new`. `reviews`: due words with **`times_seen>0`** (unseen words are never pulled in as reviews — they must be studied first). Exercises mix `meaning_mc` (choose the Spanish meaning; distractors from the user's OTHER words, fallback `GENERIC_DISTRACTORS`) and `word_write` (Spanish hint → type the English word; an optional cloze from an example is shown when `make_cloze_for_phrasal` finds one, otherwise just the hint). Peace targets 15 exercises (reuses `vocab_plan_for`/`VOCAB_PLAN_BY_MODE`).
+  - `POST /api/mywords/answer?mode=` body `{word_id, user_answer, exercise_type}` re-evaluates server-side (checks the word belongs to the caller's profile; for `word_write` normalizes vs `user_words.word`, for `meaning_mc` compares vs `meaning_es`) and updates the inline Leitner box. Same intervals as vocab (1/3/7/14/30 days).
+  - `GET /api/mywords/list?mode=` → `{totals{total,due,new}, words[]}`; used for the subpicker card subtitle count.
+- DB table `user_words` (single table, inline Leitner): `id, chat_id, word` (normalized, `UNIQUE(chat_id, word)`)`, display, meaning_es, definition_en, examples jsonb, box, times_seen, times_correct, source, created_at, first_seen_at, last_seen_at, next_due_at`, index on `(chat_id, next_due_at)`. Created idempotently in BOTH `webapp.init_db_vocab()` and `bot.init_db()`.
+- Frontend: subpicker card `actMyWords`, `#mywords` screen, `startMyWords`/`renderMyWords*` in app.js (mirror the vocab flow), `refreshMyWordsCount` updates the card subtitle from `/api/mywords/list` (called from `showScreen("subpicker")`). Reuses the vocab/grammar CSS classes.
+
 #### Static assets cache
 
-Query string `?v=17` on `app.js` and `styles.css`; service worker cache is `tutor-shell-v14`. After deploying, do a hard refresh (or close/reopen the PWA) so the new SW activates. Bump both whenever frontend assets change.
+Query string `?v=20` on `app.js` and `styles.css`; service worker cache is `tutor-shell-v17`. After deploying, do a hard refresh (or close/reopen the PWA) so the new SW activates. Bump both whenever frontend assets change.
 
 The voice screen uses only the animated orb (`#orb`). The previous 3D avatar system (Ready Player Me / `.glb` model, three.js, `avatar.js`, `AVATAR_*` env vars) was fully removed.
 

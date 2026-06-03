@@ -1,1 +1,1 @@
-- [grammar_lessons daily vs practice](grammar-lessons-daily-vs-practice.md) — daily and "Practicar" lessons must stay on separate partial unique indexes (is_practice), never one combined index.
+- [Inline-Leitner "unseen looks due"](inline-leitner-unseen-due.md) — single-table SRS (progress columns on the item row) must gate reviews on `times_seen>0`, else fresh items look due.

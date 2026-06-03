@@ -18,6 +18,11 @@ const state = {
   vocabStudyIdx: 0,
   vocabExIdx: 0,
   vocabCorrectCount: 0,
+  // Mis palabras
+  mywordsSession: null,
+  mywordsStudyIdx: 0,
+  mywordsExIdx: 0,
+  mywordsCorrectCount: 0,
 };
 
 const els = {
@@ -52,6 +57,13 @@ const els = {
   vocabLabel: document.getElementById("vocabLabel"),
   vocabStatus: document.getElementById("vocabStatus"),
   vocabBackBtn: document.getElementById("vocabBackBtn"),
+  // Mis palabras
+  actMyWords: document.getElementById("actMyWords"),
+  mywords: document.getElementById("mywords"),
+  mywordsBody: document.getElementById("mywordsBody"),
+  mywordsLabel: document.getElementById("mywordsLabel"),
+  mywordsStatus: document.getElementById("mywordsStatus"),
+  mywordsBackBtn: document.getElementById("mywordsBackBtn"),
   // Progress (mapa de temas)
   actProgress: document.getElementById("actProgress"),
   progress: document.getElementById("progress"),
@@ -137,6 +149,23 @@ async function refreshProgressCount(mode, progSub) {
   }
 }
 
+async function refreshMyWordsCount(mode, sub) {
+  if (!sub) return;
+  try {
+    const r = await fetch(`/api/mywords/list?mode=${encodeURIComponent(mode.id)}`);
+    if (!r.ok) return;
+    const data = await r.json();
+    const t = data.totals;
+    if (state.mode && state.mode.id === mode.id && t && typeof t.total === "number") {
+      sub.textContent = t.total === 0
+        ? "Aún no hay palabras · añádelas con /add en Telegram"
+        : `${t.total} palabra${t.total === 1 ? "" : "s"} · ${t.due} para repasar hoy`;
+    }
+  } catch {
+    /* deja el texto por defecto si falla */
+  }
+}
+
 els.subBackBtn.addEventListener("click", () => showScreen("picker"));
 
 let activityClickGuard = false;
@@ -154,6 +183,9 @@ els.actGrammar.addEventListener("click", () => guardClick(() => {
 }));
 els.actVocab.addEventListener("click", () => guardClick(() => {
   if (state.mode) startVocab(state.mode);
+}));
+els.actMyWords.addEventListener("click", () => guardClick(() => {
+  if (state.mode) startMyWords(state.mode);
 }));
 els.actProgress.addEventListener("click", () => guardClick(() => {
   if (state.mode) startProgress(state.mode);
@@ -309,6 +341,7 @@ function showScreen(name) {
   document.getElementById(name).classList.add("active");
   if (name === "subpicker" && state.mode) {
     refreshProgressCount(state.mode, els.actProgress.querySelector(".act-sub"));
+    refreshMyWordsCount(state.mode, els.actMyWords.querySelector(".act-sub"));
   }
 }
 
@@ -984,6 +1017,293 @@ function renderVocabResult() {
   document.getElementById("vocSpeakBtn").addEventListener("click", () => startVoice(state.mode));
   document.getElementById("vocDoneBtn").addEventListener("click", () => showScreen("subpicker"));
   els.vocabBody.scrollTop = 0;
+}
+
+// ---------- Mis palabras ----------
+
+els.mywordsBackBtn.addEventListener("click", () => showScreen("subpicker"));
+
+async function startMyWords(mode) {
+  els.mywordsLabel.textContent = mode.label;
+  els.mywordsStatus.textContent = "Cargando…";
+  els.mywordsBody.innerHTML = '<div class="grammar-loading">Cargando tus palabras…</div>';
+  showScreen("mywords");
+
+  state.mywordsSession = null;
+  state.mywordsStudyIdx = 0;
+  state.mywordsExIdx = 0;
+  state.mywordsCorrectCount = 0;
+
+  try {
+    const r = await fetch(`/api/mywords/today?mode=${encodeURIComponent(mode.id)}`);
+    if (!r.ok) {
+      const txt = await r.text();
+      throw new Error(`HTTP ${r.status}: ${txt.slice(0, 200)}`);
+    }
+    const session = await r.json();
+    state.mywordsSession = session;
+    els.mywordsStatus.textContent = `${(session.totals && session.totals.all) || 0} en total`;
+    renderMyWordsIntro();
+  } catch (err) {
+    console.error("[mywords] load failed", err);
+    els.mywordsStatus.textContent = "Error";
+    els.mywordsBody.innerHTML = `
+      <div class="grammar-loading">
+        No se pudo cargar la sesión.<br><br>
+        <button class="gram-cta secondary" id="retryMyWordsBtn">Reintentar</button>
+      </div>`;
+    document.getElementById("retryMyWordsBtn").addEventListener("click", () => startMyWords(mode));
+  }
+}
+
+function renderMyWordsIntro() {
+  const s = state.mywordsSession;
+  const t = s.totals || { new: 0, reviews: 0, exercises: 0, all: 0 };
+
+  if ((t.all || 0) === 0) {
+    els.mywordsBody.innerHTML = `
+      <div class="vocab-empty">
+        <div class="big-icon">✏️</div>
+        <h3 class="gram-title">Aún no tienes palabras</h3>
+        <div class="gram-explanation">
+          Añade tu vocabulario de clase escribiendo <strong>/add</strong> en Telegram,
+          una palabra o expresión por línea. Aparecerán aquí para repasarlas.
+        </div>
+        <button class="gram-cta secondary" id="mywordsDoneBtn" style="margin-top: 1rem;">Volver</button>
+      </div>`;
+    document.getElementById("mywordsDoneBtn").addEventListener("click", () => showScreen("subpicker"));
+    return;
+  }
+
+  if (t.new === 0 && t.reviews === 0) {
+    els.mywordsBody.innerHTML = `
+      <div class="vocab-empty">
+        <div class="big-icon">✅</div>
+        <h3 class="gram-title">Hoy no toca repaso</h3>
+        <div class="gram-explanation">
+          No tienes palabras nuevas pendientes ni repasos vencidos.
+          Vuelve mañana o añade más con <strong>/add</strong> en Telegram.
+        </div>
+        <button class="gram-cta secondary" id="mywordsDoneBtn" style="margin-top: 1rem;">Volver</button>
+      </div>`;
+    document.getElementById("mywordsDoneBtn").addEventListener("click", () => showScreen("subpicker"));
+    return;
+  }
+
+  els.mywordsBody.innerHTML = `
+    <div class="gram-meta">${t.all} en total · ${t.new} ${t.new === 1 ? "nueva" : "nuevas"} · ${t.reviews} ${t.reviews === 1 ? "repaso" : "repasos"}</div>
+    <h3 class="gram-title">Mis palabras de hoy</h3>
+    <div class="gram-explanation">
+      Primero veremos las palabras nuevas con sus ejemplos.
+      Después las pondremos a prueba mezclando las nuevas con los repasos pendientes.
+    </div>
+    <button class="gram-cta" id="startMyWordsBtn">${t.new > 0 ? "Empezar a estudiar →" : "Ir a los ejercicios →"}</button>
+  `;
+  els.mywordsBody.scrollTop = 0;
+  document.getElementById("startMyWordsBtn").addEventListener("click", () => {
+    if ((s.study || []).length > 0) {
+      state.mywordsStudyIdx = 0;
+      renderMyWordsStudyCard();
+    } else {
+      state.mywordsExIdx = 0;
+      renderMyWordsExercise();
+    }
+  });
+}
+
+function renderMyWordsStudyCard() {
+  const s = state.mywordsSession;
+  const idx = state.mywordsStudyIdx;
+  const total = s.study.length;
+  const it = s.study[idx];
+  const last = idx + 1 >= total;
+
+  els.mywordsBody.innerHTML = `
+    <div class="gram-progress">Nueva ${idx + 1} de ${total}</div>
+    <div class="voc-card">
+      <div class="voc-phrasal">${escapeHtml(it.display)}</div>
+      <div class="voc-meaning">${escapeHtml(it.meaning_es)}</div>
+      <div class="voc-meaning-en">${escapeHtml(it.definition_en || "")}</div>
+      <div class="gram-section-title">Examples</div>
+      <div class="gram-examples">
+        ${(it.examples || []).map(ex => `
+          <div class="gram-example">
+            <div class="en">${escapeHtml(ex.en)}</div>
+            <div class="es">${escapeHtml(ex.es || "")}</div>
+          </div>
+        `).join("")}
+      </div>
+    </div>
+    <button class="gram-cta" id="nextMyStudyBtn">${last ? "Empezar ejercicios →" : "Lo entendí →"}</button>
+  `;
+  els.mywordsBody.scrollTop = 0;
+  document.getElementById("nextMyStudyBtn").addEventListener("click", () => {
+    if (last) {
+      state.mywordsExIdx = 0;
+      state.mywordsCorrectCount = 0;
+      renderMyWordsExercise();
+    } else {
+      state.mywordsStudyIdx++;
+      renderMyWordsStudyCard();
+    }
+  });
+}
+
+function renderMyWordsExercise() {
+  const s = state.mywordsSession;
+  const idx = state.mywordsExIdx;
+  const total = s.exercises.length;
+
+  if (idx >= total) {
+    renderMyWordsResult();
+    return;
+  }
+
+  const ex = s.exercises[idx];
+  if (ex.type === "word_write") {
+    renderMyWordsWriteExercise(ex, idx, total);
+  } else {
+    renderMyWordsMcExercise(ex, idx, total);
+  }
+  els.mywordsBody.scrollTop = 0;
+}
+
+function renderMyWordsMcExercise(ex, idx, total) {
+  els.mywordsBody.innerHTML = `
+    <div class="gram-progress">Pregunta ${idx + 1} de ${total}</div>
+    <div class="gram-question">
+      <div class="q">${escapeHtml(ex.question)}</div>
+      <div class="gram-options" id="opts">
+        ${ex.options.map((opt, i) => `
+          <button class="gram-option" data-i="${i}">${escapeHtml(opt)}</button>
+        `).join("")}
+      </div>
+      <div id="feedback"></div>
+    </div>
+  `;
+  const opts = els.mywordsBody.querySelectorAll(".gram-option");
+  opts.forEach(btn => btn.addEventListener("click", () => handleMyWordsMcAnswer(btn, ex, opts)));
+}
+
+function renderMyWordsWriteExercise(ex, idx, total) {
+  els.mywordsBody.innerHTML = `
+    <div class="gram-progress">Pregunta ${idx + 1} de ${total} · Escribir</div>
+    <div class="gram-question">
+      <div class="q">${escapeHtml(ex.instruction || "Escribe la palabra en inglés:")}</div>
+      <div class="voc-hint-es"><strong>Pista (es):</strong> ${escapeHtml(ex.hint_es || "")}</div>
+      ${ex.cloze_en ? `<div class="voc-cloze">${escapeHtml(ex.cloze_en)}</div>` : ""}
+      <div class="voc-write-row">
+        <input type="text" id="myWriteInput" class="voc-write-input"
+               placeholder="escribe en inglés…" autocomplete="off"
+               autocapitalize="off" autocorrect="off" spellcheck="false" />
+        <button class="gram-cta" id="myWriteCheck">Comprobar</button>
+      </div>
+      <div id="feedback"></div>
+    </div>
+  `;
+  const input = document.getElementById("myWriteInput");
+  const btn = document.getElementById("myWriteCheck");
+  const submit = () => handleMyWordsWriteAnswer(ex, input, btn);
+  btn.addEventListener("click", submit);
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { e.preventDefault(); submit(); }
+  });
+  setTimeout(() => input.focus(), 50);
+}
+
+function showMyWordsFeedback(ex, isCorrect) {
+  const fb = document.getElementById("feedback");
+  fb.className = `gram-feedback ${isCorrect ? "correct" : "wrong"}`;
+  const head = isCorrect ? "✓ Correct" : "✗ Not quite";
+  const examples = (ex.examples || []).slice(0, 2).map(e => `
+    <div class="gram-example" style="margin-top: 0.5rem;">
+      <div class="en">${escapeHtml(e.en)}</div>
+      <div class="es">${escapeHtml(e.es || "")}</div>
+    </div>
+  `).join("");
+  const summary = ex.type === "word_write"
+    ? `<em>${escapeHtml(ex.correct)}</em> = ${escapeHtml(ex.hint_es || "")}.`
+    : `<em>${escapeHtml(ex.word)}</em> = ${escapeHtml(ex.correct)}.`;
+  fb.innerHTML = `
+    <strong>${head}.</strong> ${summary}
+    <span class="answer">${escapeHtml(ex.explanation || "")}</span>
+    ${examples}
+  `;
+  const next = document.createElement("button");
+  next.className = "gram-cta";
+  next.style.marginTop = "0.8rem";
+  next.textContent = state.mywordsExIdx + 1 >= state.mywordsSession.exercises.length ? "Ver resultado →" : "Siguiente →";
+  next.addEventListener("click", () => {
+    state.mywordsExIdx++;
+    renderMyWordsExercise();
+  });
+  fb.parentElement.appendChild(next);
+  next.focus();
+}
+
+function persistMyWordsAnswer(ex, userAnswer) {
+  fetch(`/api/mywords/answer?mode=${encodeURIComponent(state.mode.id)}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      word_id: ex.word_id,
+      user_answer: userAnswer,
+      exercise_type: ex.type || "meaning_mc",
+    }),
+  }).catch(err => console.warn("[mywords] answer save failed", err));
+}
+
+async function handleMyWordsMcAnswer(btn, ex, allBtns) {
+  const chosen = btn.textContent;
+  const isCorrect = chosen === ex.correct;
+  allBtns.forEach(b => { b.disabled = true; });
+  if (isCorrect) {
+    btn.classList.add("correct");
+    state.mywordsCorrectCount++;
+  } else {
+    btn.classList.add("wrong");
+    allBtns.forEach(b => {
+      if (b.textContent === ex.correct) b.classList.add("correct");
+    });
+  }
+  persistMyWordsAnswer(ex, chosen);
+  showMyWordsFeedback(ex, isCorrect);
+}
+
+async function handleMyWordsWriteAnswer(ex, input, btn) {
+  if (input.disabled) return;
+  const raw = input.value || "";
+  const isCorrect = normalizePhrasalClient(raw) === normalizePhrasalClient(ex.correct || ex.word);
+  input.disabled = true;
+  btn.disabled = true;
+  input.classList.add(isCorrect ? "correct" : "wrong");
+  if (isCorrect) state.mywordsCorrectCount++;
+  persistMyWordsAnswer(ex, raw);
+  showMyWordsFeedback(ex, isCorrect);
+}
+
+function renderMyWordsResult() {
+  const total = state.mywordsSession.exercises.length;
+  const score = state.mywordsCorrectCount;
+  const pct = total > 0 ? Math.round((score / total) * 100) : 0;
+  let label = "Sigue practicando";
+  if (pct >= 80) label = "¡Genial! Te las sabes";
+  else if (pct >= 60) label = "Buen trabajo";
+  else if (pct >= 40) label = "Vas cogiéndolas";
+
+  els.mywordsBody.innerHTML = `
+    <div class="gram-result">
+      <div class="score">${score} / ${total}</div>
+      <div class="label">${label}</div>
+      <div class="actions">
+        <button class="gram-cta" id="myWordsSpeakBtn">Hablar de esto con ${escapeHtml(state.mode.label)}</button>
+        <button class="gram-cta secondary" id="myWordsDoneBtn2">Terminar</button>
+      </div>
+    </div>
+  `;
+  document.getElementById("myWordsSpeakBtn").addEventListener("click", () => startVoice(state.mode));
+  document.getElementById("myWordsDoneBtn2").addEventListener("click", () => showScreen("subpicker"));
+  els.mywordsBody.scrollTop = 0;
 }
 
 boot();
