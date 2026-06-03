@@ -1,5 +1,7 @@
 import os
+import asyncio
 import json
+import logging
 import re
 import tempfile
 from collections import defaultdict, deque
@@ -753,7 +755,8 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
 WEB_CHAT_IDS = {"peace": -1001, "lucia": -1002, "leyre": -1003}
 MODE_TO_VOCAB_LEVEL = {"peace": "B2-C1", "lucia": "A2-B1", "leyre": "A2-B1"}
 
-ADD_MAX_WORDS = 30  # tope por mensaje para controlar coste/tiempo
+ADD_MAX_WORDS = 300  # tope por mensaje (listas grandes se enriquecen por lotes)
+ENRICH_BATCH_SIZE = 20  # palabras por llamada a GPT (evita truncar el JSON)
 
 
 def web_chat_id(mode: str) -> int:
@@ -796,10 +799,26 @@ def parse_add_words(text: str) -> list[str]:
 
 
 def enrich_words(words: list[str], level: str) -> dict[str, dict]:
-    """Pide a GPT significado en español, definición en inglés y 2 ejemplos por palabra.
+    """Enriquece la lista completa en lotes de ENRICH_BATCH_SIZE.
 
+    Tolera fallos por lote: si un lote falla, se omite y se continúa con el resto.
     Devuelve un dict {forma_normalizada: {display, meaning_es, definition_en, examples}}.
     """
+    if not words:
+        return {}
+    result: dict[str, dict] = {}
+    for i in range(0, len(words), ENRICH_BATCH_SIZE):
+        batch = words[i : i + ENRICH_BATCH_SIZE]
+        try:
+            result.update(_enrich_words_batch(batch, level))
+        except Exception:
+            logging.exception("enrich_words: fallo en un lote, se omite")
+            continue
+    return result
+
+
+def _enrich_words_batch(words: list[str], level: str) -> dict[str, dict]:
+    """Una sola llamada a GPT para un lote pequeño de palabras."""
     if not words:
         return {}
     listado = "\n".join(f"- {w}" for w in words)
@@ -898,9 +917,15 @@ async def add_words(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     await context.bot.send_chat_action(chat_id=chat_id, action=ChatAction.TYPING)
+    if len(words) > ENRICH_BATCH_SIZE:
+        await update.message.reply_text(
+            f"Recibidas *{len(words)}* palabras. Las estoy preparando por lotes, "
+            "dame un momento…",
+            parse_mode="Markdown",
+        )
     level = MODE_TO_VOCAB_LEVEL.get(mode, "B2-C1")
     try:
-        enriched = enrich_words(words, level)
+        enriched = await asyncio.to_thread(enrich_words, words, level)
     except Exception:
         await update.message.reply_text(
             "Ups, no pude preparar esas palabras ahora mismo. ¿Lo intentamos de nuevo en un momento?"
@@ -923,9 +948,12 @@ async def add_words(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     total = len(enriched)
     already = total - added
+    failed = len(words) - total
     lines = [f"✅ Añadí *{added}* palabra(s) nueva(s) a *Mis palabras* ({profile_label})."]
     if already > 0:
         lines.append(f"({already} ya las tenías guardadas.)")
+    if failed > 0:
+        lines.append(f"({failed} no pude prepararlas; vuelve a enviarme solo esas.)")
     sample = ", ".join(info["display"] for info in list(enriched.values())[:8])
     if sample:
         lines.append("\n" + sample)
