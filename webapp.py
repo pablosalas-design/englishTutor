@@ -1391,6 +1391,9 @@ def normalize_phrasal_text(s: str) -> str:
     if not s:
         return ""
     s = s.lower().replace("-", " ").replace("'", "'").replace("’", "'")
+    # Unifica apóstrofos tipográficos (´ ` ’ ‘ …) a recto '
+    for ap in ["´", "`", "’", "‘", "ʼ", "‛", "\u2032"]:
+        s = s.replace(ap, "'")
     # Quita puntuación común
     for ch in [".", ",", ";", ":", "!", "?", '"', "(", ")"]:
         s = s.replace(ch, " ")

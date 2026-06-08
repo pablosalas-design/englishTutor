@@ -880,6 +880,7 @@ function renderVocabStudyCard() {
 function normalizePhrasalClient(s) {
   if (!s) return "";
   return s.toLowerCase()
+    .replace(/[´`’‘ʼ‛′]/g, "'")
     .replace(/[-]/g, " ")
     .replace(/[.,;:!?"()]/g, " ")
     .replace(/\s+/g, " ")
