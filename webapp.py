@@ -1047,6 +1047,18 @@ def get_or_create_today_lesson(chat_id: int, mode: str) -> dict:
     return lesson
 
 
+def normalize_fill_text(s: str) -> str:
+    """Normaliza una respuesta de rellenar: minúsculas, apóstrofos tipográficos
+    (´ ` ’ ‘ …) unificados a recto ', espacios colapsados y puntuación externa fuera."""
+    if not s:
+        return ""
+    s = str(s).lower()
+    for ch in ["´", "`", "’", "‘", "ʼ", "‛", "\u2032"]:
+        s = s.replace(ch, "'")
+    s = re.sub(r"\s+", " ", s).strip()
+    return s.strip(".,!?;:\"()[]").strip()
+
+
 def evaluate_answer(exercise: dict, user_answer: str | None) -> bool:
     """Comprueba en el servidor si la respuesta del alumno es correcta."""
     if user_answer is None:
@@ -1054,11 +1066,18 @@ def evaluate_answer(exercise: dict, user_answer: str | None) -> bool:
     raw = str(user_answer).strip()
     if exercise.get("type") == "mc":
         return raw == exercise.get("correct")
-    # fill: comparación case-insensitive, sin puntuación final
-    norm = re.sub(r"[.,!?;:]+$", "", raw.strip().lower())
-    accepted = [exercise.get("correct", "").strip().lower()]
-    accepted += [str(a).strip().lower() for a in exercise.get("accept", [])]
-    return norm in accepted
+    # fill: tolerante a apóstrofos tipográficos, espacios y a escribir la frase entera
+    norm = normalize_fill_text(raw)
+    accepted = [normalize_fill_text(exercise.get("correct", ""))]
+    accepted += [normalize_fill_text(a) for a in exercise.get("accept", [])]
+    accepted = [a for a in accepted if a]
+    if norm in accepted:
+        return True
+    # Leniencia: el alumno escribió toda la frase en vez de solo la palabra del hueco.
+    for a in accepted:
+        if re.search(r"(^|[^\w'])" + re.escape(a) + r"([^\w']|$)", norm):
+            return True
+    return False
 
 
 # ----------------------------------------------------------------------------

@@ -518,11 +518,36 @@ function handleMcAnswer(btn, ex, allBtns) {
   showFeedbackAndNext(isCorrect, ex, chosen);
 }
 
+function escapeRegex(s) {
+  return String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function normalizeFillClient(s) {
+  return String(s || "")
+    .toLowerCase()
+    .replace(/[´`’‘ʼ‛′]/g, "'")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/^[.,!?;:"()\[\]]+|[.,!?;:"()\[\]]+$/g, "")
+    .trim();
+}
+
+function fillIsCorrect(rawInput, ex) {
+  const norm = normalizeFillClient(rawInput);
+  if (!norm) return false;
+  const accepted = [normalizeFillClient(ex.correct), ...((ex.accept || []).map(normalizeFillClient))].filter(Boolean);
+  if (accepted.includes(norm)) return true;
+  // Leniencia: el alumno escribió toda la frase en vez de solo la palabra del hueco.
+  for (const a of accepted) {
+    if (new RegExp("(^|[^\\w'])" + escapeRegex(a) + "([^\\w']|$)").test(norm)) return true;
+  }
+  return false;
+}
+
 function handleFillAnswer(input, ex, checkBtn) {
-  const raw = (input.value || "").trim().toLowerCase().replace(/[.,!?;:]+$/, "");
+  const raw = (input.value || "").trim();
   if (!raw) return;
-  const accepted = [ex.correct.toLowerCase(), ...((ex.accept || []).map(a => a.toLowerCase()))];
-  const isCorrect = accepted.includes(raw);
+  const isCorrect = fillIsCorrect(raw, ex);
   input.disabled = true;
   checkBtn.disabled = true;
   input.classList.add(isCorrect ? "correct" : "wrong");
