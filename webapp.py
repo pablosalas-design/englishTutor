@@ -577,8 +577,6 @@ LEVEL_CURRICULUM: dict[str, list[str]] = {
         "future_continuous",                         # I'll be working at 5pm
         "future_perfect",
         "past_perfect_continuous",
-        # Phrasal Verbs
-        "phrasal_verbs_separable",
         # Conectores
         "linkers_advanced",                          # whereas, although, despite, however
         "linkers_purpose_result",                    # so that, in order to, such... that, so... that
@@ -592,6 +590,8 @@ LEVEL_CURRICULUM: dict[str, list[str]] = {
         # Artículos y comparación
         "articles_advanced",
         "comparison_advanced",                       # the more... the more, far/much + comparative
+        # Phrasal Verbs
+        "phrasal_verbs_separable",
     ],
     "A2-B1": [
         # Present
