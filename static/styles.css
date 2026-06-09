@@ -579,6 +579,16 @@ html, body {
 .prog-dot.in_progress { background: #facc15; }
 .prog-dot.not_started { background: #6b7280; }
 .prog-list { display: flex; flex-direction: column; gap: 0.5rem; }
+.prog-cat {
+  font-size: 0.74rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--mc-color, var(--text-dim, #9aa));
+  margin: 0.85rem 0 0.1rem;
+  opacity: 0.85;
+}
+.prog-cat:first-child { margin-top: 0; }
 .prog-topic {
   display: flex;
   align-items: center;

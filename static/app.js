@@ -690,11 +690,17 @@ function renderProgress(data) {
   const s = data.summary;
   const pct = s.total ? Math.round((s.mastered / s.total) * 100) : 0;
 
+  let lastCat = null;
   const rows = data.topics.map(t => {
     const meta = t.attempts > 0
       ? `${t.accuracy}% de aciertos · ${t.attempts} intentos`
       : "Aún sin practicar";
-    return `
+    let header = "";
+    if (t.category && t.category !== lastCat) {
+      lastCat = t.category;
+      header = `<div class="prog-cat">${escapeHtml(t.category)}</div>`;
+    }
+    return header + `
       <div class="prog-topic">
         <span class="prog-dot ${t.status}"></span>
         <div class="prog-topic-info">

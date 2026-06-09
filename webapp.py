@@ -542,49 +542,54 @@ Rules:
 # Editable sin tocar nada más.
 LEVEL_CURRICULUM: dict[str, list[str]] = {
     "B2-C1": [
-        # Conditionals
+        # Condicionales
         "second_conditional",
         "third_conditional",
         "mixed_conditionals",
         "conditionals_unless_provided_as_long_as",   # unless / provided that / as long as
-        # Reported speech / passive
+        "wish_if_only",
+        # Estilo indirecto
         "reported_speech",
         "indirect_questions",                        # Could you tell me where...
+        # Voz pasiva y causativos
         "passive_voice",
-        # Modals
+        "causative_have_get",                        # have/get something done
+        # Modales
         "may_might_possibility_permission",          # It may rain / May I come in? / may vs might
         "modals_of_deduction_present",               # must / might / can't be
         "modals_of_deduction_past",                  # must / might / can't have + past participle
-        # Relatives
+        # Relative Clauses
         "relative_clauses_defining",
         "relative_clauses_non_defining",
         "reduced_relative_clauses",                  # the man sitting there / the book written by...
-        # Verb patterns
+        # Verb Patterns
         "gerunds_vs_infinitives",
+        "used_to_be_used_to_get_used_to",
+        # Subjuntivo y estructuras formales
         "subjunctive_suggest_recommend_insist",      # I suggest (that) he be / go...
-        # Emphasis & inversion
+        # Inversiones y énfasis
         "inversion_negative_adverbials",             # hardly... when, no sooner, never have I...
         "conditional_inversion",                     # Had I known... / Were I to... / Should you need...
         "cleft_sentences",                           # It was X that..., What I need is...
         "emphasis_do_does_did",                      # I do like it
-        # Wish, used to, causative
-        "wish_if_only",
-        "used_to_be_used_to_get_used_to",
-        "causative_have_get",
-        # Tenses
+        # Tiempos verbales
         "present_perfect_simple_vs_continuous",       # I've worked vs I've been working
         "future_continuous",                         # I'll be working at 5pm
         "future_perfect",
         "past_perfect_continuous",
-        # Phrasal verbs / linkers / quantifiers
+        # Phrasal Verbs
         "phrasal_verbs_separable",
+        # Conectores
         "linkers_advanced",                          # whereas, although, despite, however
         "linkers_purpose_result",                    # so that, in order to, such... that, so... that
+        # Intensificadores y cuantificadores
         "so_such_too_enough",
         "quantifiers_advanced",                      # few/a few, little/a little, plenty of, hardly any
+        # Preguntas y conversación
         "question_tags",
-        # Other
+        # Participios
         "participle_clauses",                        # Walking home, I saw...
+        # Artículos y comparación
         "articles_advanced",
         "comparison_advanced",                       # the more... the more, far/much + comparative
     ],
@@ -868,6 +873,47 @@ def grammar_topic_label(slug: str) -> str:
     return TOPIC_LABELS.get(slug) or slug.replace("_", " ").capitalize()
 
 
+# Categorías del temario B2-C1 para el mapa de progreso.
+# El orden visible lo marca LEVEL_CURRICULUM; esto solo agrupa por sección.
+TOPIC_CATEGORY: dict[str, str] = {
+    "second_conditional": "Condicionales",
+    "third_conditional": "Condicionales",
+    "mixed_conditionals": "Condicionales",
+    "conditionals_unless_provided_as_long_as": "Condicionales",
+    "wish_if_only": "Condicionales",
+    "reported_speech": "Estilo indirecto",
+    "indirect_questions": "Estilo indirecto",
+    "passive_voice": "Voz pasiva y causativos",
+    "causative_have_get": "Voz pasiva y causativos",
+    "may_might_possibility_permission": "Modales",
+    "modals_of_deduction_present": "Modales",
+    "modals_of_deduction_past": "Modales",
+    "relative_clauses_defining": "Relative Clauses",
+    "relative_clauses_non_defining": "Relative Clauses",
+    "reduced_relative_clauses": "Relative Clauses",
+    "gerunds_vs_infinitives": "Verb Patterns",
+    "used_to_be_used_to_get_used_to": "Verb Patterns",
+    "subjunctive_suggest_recommend_insist": "Subjuntivo y estructuras formales",
+    "inversion_negative_adverbials": "Inversiones y énfasis",
+    "conditional_inversion": "Inversiones y énfasis",
+    "cleft_sentences": "Inversiones y énfasis",
+    "emphasis_do_does_did": "Inversiones y énfasis",
+    "present_perfect_simple_vs_continuous": "Tiempos verbales",
+    "future_continuous": "Tiempos verbales",
+    "future_perfect": "Tiempos verbales",
+    "past_perfect_continuous": "Tiempos verbales",
+    "phrasal_verbs_separable": "Phrasal Verbs",
+    "linkers_advanced": "Conectores",
+    "linkers_purpose_result": "Conectores",
+    "so_such_too_enough": "Intensificadores y cuantificadores",
+    "quantifiers_advanced": "Intensificadores y cuantificadores",
+    "question_tags": "Preguntas y conversación",
+    "participle_clauses": "Participios",
+    "articles_advanced": "Artículos y comparación",
+    "comparison_advanced": "Artículos y comparación",
+}
+
+
 # Umbrales para considerar un tema "dominado" en el mapa de progreso.
 GRAMMAR_MASTERY_MIN_ATTEMPTS = 6
 GRAMMAR_MASTERY_MIN_ACCURACY = 0.8
@@ -920,6 +966,7 @@ def build_grammar_progress(chat_id: int, mode: str) -> dict:
         topics.append({
             "slug": slug,
             "label": grammar_topic_label(slug),
+            "category": TOPIC_CATEGORY.get(slug),
             "status": status,
             "attempts": attempts,
             "correct": correct,
