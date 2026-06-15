@@ -52,6 +52,7 @@ Flow: persona picker → activity picker (`Hablar` / `Gramática`) → voice scr
   - the **per-level curriculum** in `LEVEL_CURRICULUM` (`B2-C1` and `A2-B1` lists in `webapp.py`) — the model is forced to pick one of those topic slugs. Editable in one place without touching anything else.
   - the last 20 lesson topics for that profile (to avoid repetition)
 - Returns: `{topic, title, explanation, examples[{en,translation}], exercises[mc..., fill...]}`. The generator validates the JSON shape against the per-profile plan and retries once if invalid.
+- For `fill` exercises the model is instructed (in both `GRAMMAR_SYSTEM_PROMPT` and `REGEN_EXERCISES_SYSTEM_PROMPT`) to list **every interchangeable correct answer** in `accept[]` (e.g. *provided that / providing / as long as*), so valid synonyms aren't marked wrong. The server (`evaluate_answer`) checks `correct` + `accept` after `normalize_fill_text`. (`unless` ≠ `provided that`/`as long as` — only true synonyms are grouped.)
 - Per-profile exercise plan (`EXERCISE_PLAN_BY_MODE` in `webapp.py`):
   - `peace` → 10 exercises (6 mc + 4 fill)
   - `lucia`, `leyre` → 5 exercises (3 mc + 2 fill)

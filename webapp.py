@@ -477,7 +477,7 @@ Output STRICT JSON with this schema (no markdown, no extra text):
       "type": "fill",
       "question": "<English sentence with ___ where the answer goes>",
       "correct": "<the exact word(s) that fill the blank, lowercase, no punctuation>",
-      "accept": ["<optional alternative spellings or contractions, lowercase>"],
+      "accept": ["<EVERY other answer that is ALSO fully correct in THIS exact blank: interchangeable connectors/synonyms (e.g. 'provided that' / 'providing' / 'as long as'), alternative spellings, contractions — all lowercase>"],
       "explanation": "<brief feedback in explanation_lang>"
     },
     ... more "fill" up to num_fill ...
@@ -489,7 +489,14 @@ Rules:
 - Example translations always go to native_lang (Spanish).
 - Lesson explanation and exercise feedback follow explanation_lang.
 - Difficulty must match the level.
-- Each "fill" answer must be 1-3 words, unambiguous, and lowercase.
+- Each "fill" answer must be 1-3 words and lowercase.
+- If MORE THAN ONE answer is fully correct and interchangeable in that exact sentence
+  (e.g. "provided that" / "providing" / "as long as"), you MUST list EVERY acceptable
+  variant in "accept" (lowercase): pick the most natural one as "correct" and put the rest
+  in "accept". Never build a fill blank whose intended answer is arbitrary among
+  interchangeable options without listing them all in "accept". (Note: "unless" means
+  "if not / except if" and is NOT interchangeable with "provided that" / "as long as" —
+  only group answers that truly mean the same in that sentence.)
 - Never include the answer inside the question.
 - Vary the exercises so they all test the same topic from different angles.
 """
@@ -521,7 +528,7 @@ Output STRICT JSON with this schema (no markdown, no extra text):
       "type": "fill",
       "question": "<English sentence with ___ where the answer goes>",
       "correct": "<the exact word(s) that fill the blank, lowercase, no punctuation>",
-      "accept": ["<optional alternative spellings or contractions, lowercase>"],
+      "accept": ["<EVERY other answer that is ALSO fully correct in THIS exact blank: interchangeable connectors/synonyms (e.g. 'provided that' / 'providing' / 'as long as'), alternative spellings, contractions — all lowercase>"],
       "explanation": "<brief feedback in explanation_lang>"
     }
   ]
@@ -531,7 +538,12 @@ Rules:
 - Exercises and example sentences are in ENGLISH.
 - Feedback follows explanation_lang.
 - Difficulty must match the level.
-- Each "fill" answer must be 1-3 words, unambiguous, and lowercase.
+- Each "fill" answer must be 1-3 words and lowercase.
+- If MORE THAN ONE answer is fully correct and interchangeable in that exact sentence
+  (e.g. "provided that" / "providing" / "as long as"), you MUST list EVERY acceptable
+  variant in "accept" (lowercase): pick the most natural one as "correct" and put the rest
+  in "accept". ("unless" means "if not" and is NOT interchangeable — only group true
+  synonyms that mean the same in that sentence.)
 - Never include the answer inside the question.
 - The new exercises MUST be clearly different from previous_exercises (different sentences,
   different contexts, different vocabulary). Same grammar topic, fresh content.
