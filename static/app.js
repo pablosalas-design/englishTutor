@@ -713,7 +713,7 @@ function renderProgress(data) {
 
   els.progressBody.innerHTML = `
     <div class="prog-summary">
-      <div class="prog-headline">Dominados ${s.mastered} / ${s.total}</div>
+      <div class="prog-headline">Dominados ${s.mastered} / ${s.total} (${pct}%)</div>
       <div class="prog-bar"><div class="prog-bar-fill" style="width:${pct}%"></div></div>
       <div class="prog-legend">
         <span><span class="prog-dot mastered"></span>${s.mastered} dominados</span>
