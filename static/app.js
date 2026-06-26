@@ -711,12 +711,6 @@ function renderProgress(data) {
       </div>`;
   }).join("");
 
-  // TEMPORAL — botones provisionales pedidos por Pablo. ELIMINAR tras usarlos.
-  const forceBtn = data.mode === "peace"
-    ? `<button class="gram-cta secondary" data-fm="modals_of_deduction_present" style="margin-top:12px">Marcar "Modales de deducción (presente)" como dominado</button>
-       <button class="gram-cta secondary" data-fm="modals_of_deduction_past" style="margin-top:12px">Marcar "Modales de deducción (pasado)" como dominado</button>`
-    : "";
-
   els.progressBody.innerHTML = `
     <div class="prog-summary">
       <div class="prog-headline">Dominados ${s.mastered} / ${s.total} (${pct}%)</div>
@@ -726,7 +720,6 @@ function renderProgress(data) {
         <span><span class="prog-dot in_progress"></span>${s.in_progress} en práctica</span>
         <span><span class="prog-dot not_started"></span>${s.not_started} sin empezar</span>
       </div>
-      ${forceBtn}
     </div>
     <div class="prog-list">${rows}</div>
   `;
@@ -734,34 +727,6 @@ function renderProgress(data) {
   els.progressBody.querySelectorAll(".prog-practice").forEach(btn => {
     btn.addEventListener("click", () => practiceTopic(btn.dataset.topic, btn));
   });
-  // TEMPORAL — handlers de los botones provisionales. ELIMINAR junto con forceBtn.
-  els.progressBody.querySelectorAll("[data-fm]").forEach(btn => {
-    btn.addEventListener("click", () => forceMasterTopic(btn.dataset.fm, btn));
-  });
-}
-
-// TEMPORAL — marca un tema como dominado (80%) vía /api/grammar/force-master.
-// ELIMINAR junto con el botón de renderProgress y el endpoint del servidor.
-async function forceMasterTopic(topic, btn) {
-  if (!state.mode) return;
-  if (btn) { btn.disabled = true; btn.textContent = "Marcando…"; }
-  try {
-    const r = await fetch(`/api/grammar/force-master?mode=${encodeURIComponent(state.mode.id)}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ topic }),
-    });
-    if (!r.ok) {
-      const txt = await r.text();
-      throw new Error(`HTTP ${r.status}: ${txt.slice(0, 200)}`);
-    }
-    const data = await r.json();
-    els.progStatus.textContent = data.level || "";
-    renderProgress(data);
-  } catch (err) {
-    console.error("[force-master] failed", err);
-    if (btn) { btn.disabled = false; btn.textContent = "Reintentar marcar como dominado"; }
-  }
 }
 
 async function practiceTopic(topic, btn) {
