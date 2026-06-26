@@ -2126,6 +2126,58 @@ async def grammar_practice(mode: str, item: PracticeItem):
         raise HTTPException(status_code=500, detail=f"No se pudo preparar la práctica: {e}")
 
 
+# === TEMPORAL — botón provisional pedido por Pablo. ELIMINAR tras usarlo: ===
+# este endpoint, el botón en static/app.js (forceMasterTopic) y nada más.
+FORCE_MASTER_TOPIC = "modals_of_deduction_present"
+
+
+@app.post("/api/grammar/force-master")
+async def grammar_force_master(mode: str, item: PracticeItem):
+    """TEMPORAL: marca un tema como 'dominado' al 80% para este perfil.
+    Borra los intentos previos de ese tema (los fallados por el bug) e inserta
+    10 intentos (8 correctos = 80%, ≥6 intentos) para que cumpla el umbral."""
+    # Estrictamente acotado al único objetivo pedido (no es un endpoint general).
+    if mode != "peace":
+        raise HTTPException(status_code=403, detail="Solo disponible para Peace")
+    topic = item.topic
+    if topic != FORCE_MASTER_TOPIC:
+        raise HTTPException(status_code=403, detail="Tema no permitido")
+    cfg = MODES[mode]
+    chat_id = web_chat_id(mode)
+    ensure_chat(chat_id)
+    lesson = {
+        "topic": topic,
+        "level": cfg["level"],
+        "lang": cfg["explanation_lang"],
+        "title": grammar_topic_label(topic),
+        "explanation": "Marcado como dominado.",
+        "examples": [],
+        "exercises": [],
+    }
+    lesson_id = insert_lesson(chat_id, mode, date.today(), lesson, is_practice=True)
+    with db_cursor() as cur:
+        cur.execute(
+            """
+            DELETE FROM grammar_attempts
+            WHERE chat_id = %s AND lesson_id IN (
+              SELECT id FROM grammar_lessons WHERE chat_id = %s AND topic = %s
+            )
+            """,
+            (chat_id, chat_id, topic),
+        )
+        for i in range(10):
+            cur.execute(
+                """
+                INSERT INTO grammar_attempts
+                  (chat_id, lesson_id, exercise_index, user_answer, is_correct)
+                VALUES (%s, %s, %s, %s, %s)
+                """,
+                (chat_id, lesson_id, i, "force", i < 8),
+            )
+    return build_grammar_progress(chat_id, mode)
+# === FIN TEMPORAL ===
+
+
 # ---------------------------- Vocab endpoints ------------------------------
 
 class VocabAnswerItem(BaseModel):
