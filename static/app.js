@@ -711,9 +711,10 @@ function renderProgress(data) {
       </div>`;
   }).join("");
 
-  // TEMPORAL — botón provisional pedido por Pablo. ELIMINAR tras usarlo.
+  // TEMPORAL — botones provisionales pedidos por Pablo. ELIMINAR tras usarlos.
   const forceBtn = data.mode === "peace"
-    ? `<button class="gram-cta secondary" id="forceMasterBtn" style="margin-top:12px">Marcar "Modales de deducción (presente)" como dominado</button>`
+    ? `<button class="gram-cta secondary" data-fm="modals_of_deduction_present" style="margin-top:12px">Marcar "Modales de deducción (presente)" como dominado</button>
+       <button class="gram-cta secondary" data-fm="modals_of_deduction_past" style="margin-top:12px">Marcar "Modales de deducción (pasado)" como dominado</button>`
     : "";
 
   els.progressBody.innerHTML = `
@@ -733,9 +734,10 @@ function renderProgress(data) {
   els.progressBody.querySelectorAll(".prog-practice").forEach(btn => {
     btn.addEventListener("click", () => practiceTopic(btn.dataset.topic, btn));
   });
-  // TEMPORAL — handler del botón provisional. ELIMINAR junto con forceBtn.
-  const fmBtn = document.getElementById("forceMasterBtn");
-  if (fmBtn) fmBtn.addEventListener("click", () => forceMasterTopic("modals_of_deduction_present", fmBtn));
+  // TEMPORAL — handlers de los botones provisionales. ELIMINAR junto con forceBtn.
+  els.progressBody.querySelectorAll("[data-fm]").forEach(btn => {
+    btn.addEventListener("click", () => forceMasterTopic(btn.dataset.fm, btn));
+  });
 }
 
 // TEMPORAL — marca un tema como dominado (80%) vía /api/grammar/force-master.

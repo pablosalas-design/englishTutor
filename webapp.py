@@ -2128,7 +2128,10 @@ async def grammar_practice(mode: str, item: PracticeItem):
 
 # === TEMPORAL — botón provisional pedido por Pablo. ELIMINAR tras usarlo: ===
 # este endpoint, el botón en static/app.js (forceMasterTopic) y nada más.
-FORCE_MASTER_TOPIC = "modals_of_deduction_present"
+FORCE_MASTER_TOPICS = {
+    "modals_of_deduction_present",
+    "modals_of_deduction_past",
+}
 
 
 @app.post("/api/grammar/force-master")
@@ -2140,7 +2143,7 @@ async def grammar_force_master(mode: str, item: PracticeItem):
     if mode != "peace":
         raise HTTPException(status_code=403, detail="Solo disponible para Peace")
     topic = item.topic
-    if topic != FORCE_MASTER_TOPIC:
+    if topic not in FORCE_MASTER_TOPICS:
         raise HTTPException(status_code=403, detail="Tema no permitido")
     cfg = MODES[mode]
     chat_id = web_chat_id(mode)
