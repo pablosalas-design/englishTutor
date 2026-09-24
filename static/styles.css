@@ -457,8 +457,45 @@ html, body {
   font-size: 1.9rem;
   font-weight: 700;
   color: var(--mc-color, var(--accent));
-  margin-bottom: 0.5rem;
   letter-spacing: -0.01em;
+}
+.voc-word-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.5rem;
+}
+.voc-speak-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 44px;
+  height: 44px;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  color: var(--mc-color, var(--accent));
+  background: rgba(255, 255, 255, 0.05);
+  cursor: pointer;
+  transition: transform 0.15s ease, background 0.15s ease;
+}
+.voc-speak-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  transform: scale(1.05);
+}
+.voc-speak-btn:focus-visible {
+  outline: 2px solid var(--mc-color, var(--accent));
+  outline-offset: 3px;
+}
+.voc-speak-btn svg {
+  width: 21px;
+  height: 21px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 .voc-meaning {
   font-size: 1.15rem;

@@ -1143,17 +1143,47 @@ function renderMyWordsIntro() {
   });
 }
 
+function speakMyWord(text) {
+  if (!("speechSynthesis" in window) || typeof SpeechSynthesisUtterance === "undefined") {
+    return;
+  }
+
+  window.speechSynthesis.cancel();
+  const utterance = new SpeechSynthesisUtterance(text);
+  utterance.lang = "en-US";
+  utterance.rate = 0.9;
+
+  const englishVoice = window.speechSynthesis.getVoices()
+    .find(voice => /^en(-|_)/i.test(voice.lang));
+  if (englishVoice) utterance.voice = englishVoice;
+
+  window.speechSynthesis.speak(utterance);
+}
+
 function renderMyWordsStudyCard() {
   const s = state.mywordsSession;
   const idx = state.mywordsStudyIdx;
   const total = s.study.length;
   const it = s.study[idx];
   const last = idx + 1 >= total;
+  const canSpeak = "speechSynthesis" in window && typeof SpeechSynthesisUtterance !== "undefined";
 
   els.mywordsBody.innerHTML = `
     <div class="gram-progress">Nueva ${idx + 1} de ${total}</div>
     <div class="voc-card">
-      <div class="voc-phrasal">${escapeHtml(it.display)}</div>
+      <div class="voc-word-row">
+        <div class="voc-phrasal">${escapeHtml(it.display)}</div>
+        <button class="voc-speak-btn" id="playMyWordBtn" type="button"
+                aria-label="Escuchar ${escapeHtml(it.display)}"
+                title="${canSpeak ? "Escuchar pronunciación" : "Audio no disponible en este navegador"}"
+                ${canSpeak ? "" : "disabled"}>
+          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <path d="M11 5 6 9H3v6h3l5 4V5Z"></path>
+            <path d="M16 9a5 5 0 0 1 0 6"></path>
+            <path d="M19 5a10 10 0 0 1 0 14"></path>
+          </svg>
+        </button>
+      </div>
       <div class="voc-meaning">${escapeHtml(it.meaning_es)}</div>
       <div class="voc-meaning-en">${escapeHtml(it.definition_en || "")}</div>
       <div class="gram-section-title">Examples</div>
@@ -1169,6 +1199,7 @@ function renderMyWordsStudyCard() {
     <button class="gram-cta" id="nextMyStudyBtn">${last ? "Empezar ejercicios →" : "Lo entendí →"}</button>
   `;
   els.mywordsBody.scrollTop = 0;
+  document.getElementById("playMyWordBtn").addEventListener("click", () => speakMyWord(it.display));
   document.getElementById("nextMyStudyBtn").addEventListener("click", () => {
     if (last) {
       state.mywordsExIdx = 0;
