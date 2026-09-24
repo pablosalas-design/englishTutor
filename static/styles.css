@@ -28,6 +28,23 @@ html, body {
   position: relative;
 }
 
+.app-version {
+  position: fixed;
+  right: calc(env(safe-area-inset-right, 0px) + 0.65rem);
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 0.5rem);
+  z-index: 1000;
+  padding: 0.2rem 0.45rem;
+  border-radius: 999px;
+  background: rgba(15, 15, 23, 0.72);
+  color: var(--text-dim);
+  font-size: 0.68rem;
+  letter-spacing: 0.04em;
+  line-height: 1.2;
+  opacity: 0.75;
+  pointer-events: none;
+  user-select: none;
+}
+
 .screen {
   position: absolute;
   inset: 0;

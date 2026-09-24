@@ -98,6 +98,7 @@ Pablo's own class vocabulary. Words are added via the Telegram bot and reviewed 
 #### Static assets cache
 
 Query string `?v=20` on `app.js` and `styles.css`; service worker cache is `tutor-shell-v17`. After deploying, do a hard refresh (or close/reopen the PWA) so the new SW activates. Bump both whenever frontend assets change.
+- On every app change, increment the visible version in the bottom-right corner (e.g. `v1.0.1` → `v1.0.2`) and bump the `app.js`/`styles.css` query versions plus the service-worker cache name.
 
 The voice screen uses only the animated orb (`#orb`). The previous 3D avatar system (Ready Player Me / `.glb` model, three.js, `avatar.js`, `AVATAR_*` env vars) was fully removed.
 
