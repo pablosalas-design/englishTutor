@@ -1,1 +1,2 @@
 - [Inline-Leitner "unseen looks due"](inline-leitner-unseen-due.md) — single-table SRS (progress columns on the item row) must gate reviews on `times_seen>0`, else fresh items look due.
+- [GitHub REST commit fidelity](github-rest-commit-fidelity.md) — exact commit hashes depend on byte-identical metadata, parent/tree IDs, and the final message newline.

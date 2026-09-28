@@ -851,11 +851,15 @@ function renderVocabStudyCard() {
   const total = s.study.length;
   const it = s.study[idx];
   const last = idx + 1 >= total;
+  const canSpeak = "speechSynthesis" in window && typeof SpeechSynthesisUtterance !== "undefined";
 
   els.vocabBody.innerHTML = `
     <div class="gram-progress">Nuevo ${idx + 1} de ${total}</div>
     <div class="voc-card">
-      <div class="voc-phrasal">${escapeHtml(it.phrasal)}</div>
+      <div class="voc-word-row">
+        <div class="voc-phrasal">${escapeHtml(it.phrasal)}</div>
+        ${renderEnglishAudioButton("playVocabBtn", it.phrasal, canSpeak)}
+      </div>
       <div class="voc-meaning">${escapeHtml(it.meaning_es)}</div>
       <div class="voc-meaning-en">${escapeHtml(it.meaning_en || "")}</div>
       <div class="gram-section-title">Examples</div>
@@ -871,6 +875,7 @@ function renderVocabStudyCard() {
     <button class="gram-cta" id="nextStudyBtn">${last ? "Empezar ejercicios →" : "Lo entendí →"}</button>
   `;
   els.vocabBody.scrollTop = 0;
+  document.getElementById("playVocabBtn").addEventListener("click", () => speakEnglish(it.phrasal));
   document.getElementById("nextStudyBtn").addEventListener("click", () => {
     if (last) {
       state.vocabExIdx = 0;
@@ -914,10 +919,14 @@ function renderVocabExercise() {
 }
 
 function renderVocabMcExercise(ex, idx, total) {
+  const canSpeak = "speechSynthesis" in window && typeof SpeechSynthesisUtterance !== "undefined";
   els.vocabBody.innerHTML = `
     <div class="gram-progress">Pregunta ${idx + 1} de ${total}</div>
     <div class="gram-question">
-      <div class="q">${escapeHtml(ex.question)}</div>
+      <div class="voc-word-row vocab-question-row">
+        <div class="q">${escapeHtml(ex.question)}</div>
+        ${renderEnglishAudioButton("playVocabExerciseBtn", ex.phrasal, canSpeak)}
+      </div>
       <div class="gram-options" id="opts">
         ${ex.options.map((opt, i) => `
           <button class="gram-option" data-i="${i}">${escapeHtml(opt)}</button>
@@ -928,13 +937,18 @@ function renderVocabMcExercise(ex, idx, total) {
   `;
   const opts = els.vocabBody.querySelectorAll(".gram-option");
   opts.forEach(btn => btn.addEventListener("click", () => handleVocabMcAnswer(btn, ex, opts)));
+  document.getElementById("playVocabExerciseBtn").addEventListener("click", () => speakEnglish(ex.phrasal));
 }
 
 function renderVocabWriteExercise(ex, idx, total) {
+  const canSpeak = "speechSynthesis" in window && typeof SpeechSynthesisUtterance !== "undefined";
   els.vocabBody.innerHTML = `
     <div class="gram-progress">Pregunta ${idx + 1} de ${total} · Escribir</div>
     <div class="gram-question">
-      <div class="q">${escapeHtml(ex.instruction || "Escribe el phrasal verb que falta:")}</div>
+      <div class="voc-word-row vocab-question-row">
+        <div class="q">${escapeHtml(ex.instruction || "Escribe el phrasal verb que falta:")}</div>
+        ${renderEnglishAudioButton("playVocabExerciseBtn", ex.phrasal, canSpeak)}
+      </div>
       <div class="voc-hint-es"><strong>Pista (es):</strong> ${escapeHtml(ex.hint_es || "")}</div>
       <div class="voc-cloze">${escapeHtml(ex.cloze_en || "")}</div>
       <div class="voc-write-row">
@@ -954,6 +968,7 @@ function renderVocabWriteExercise(ex, idx, total) {
     if (e.key === "Enter") { e.preventDefault(); submit(); }
   });
   setTimeout(() => input.focus(), 50);
+  document.getElementById("playVocabExerciseBtn").addEventListener("click", () => speakEnglish(ex.phrasal));
 }
 
 function showVocabFeedback(ex, isCorrect) {
@@ -971,9 +986,11 @@ function showVocabFeedback(ex, isCorrect) {
     : `<em>${escapeHtml(ex.phrasal)}</em> = ${escapeHtml(ex.correct)}.`;
   fb.innerHTML = `
     <strong>${head}.</strong> ${summary}
+    <div class="vocab-feedback-audio">${renderEnglishAudioButton("playVocabFeedbackBtn", ex.phrasal, "speechSynthesis" in window && typeof SpeechSynthesisUtterance !== "undefined")}</div>
     <span class="answer">${escapeHtml(ex.explanation || "")}</span>
     ${examples}
   `;
+  document.getElementById("playVocabFeedbackBtn").addEventListener("click", () => speakEnglish(ex.phrasal));
   const next = document.createElement("button");
   next.className = "gram-cta";
   next.style.marginTop = "0.8rem";
@@ -1143,7 +1160,7 @@ function renderMyWordsIntro() {
   });
 }
 
-function speakMyWord(text) {
+function speakEnglish(text) {
   if (!("speechSynthesis" in window) || typeof SpeechSynthesisUtterance === "undefined") {
     return;
   }
@@ -1158,6 +1175,32 @@ function speakMyWord(text) {
   if (englishVoice) utterance.voice = englishVoice;
 
   window.speechSynthesis.speak(utterance);
+}
+
+function renderEnglishAudioButton(buttonId, text, canSpeak) {
+  return `
+    <button class="voc-speak-btn" id="${buttonId}" type="button"
+            aria-label="Escuchar ${escapeHtml(text)}"
+            title="${canSpeak ? "Escuchar pronunciación" : "Audio no disponible en este navegador"}"
+            ${canSpeak ? "" : "disabled"}>
+      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+        <path d="M11 5 6 9H3v6h3l5 4V5Z"></path>
+        <path d="M16 9a5 5 0 0 1 0 6"></path>
+        <path d="M19 5a10 10 0 0 1 0 14"></path>
+      </svg>
+    </button>
+  `;
+}
+
+function renderMyWordPronunciation(pronunciation, showUnavailable = false) {
+  const text = (pronunciation || "").trim();
+  if (!text && !showUnavailable) return "";
+  return `
+    <div class="voc-pronunciation${text ? "" : " is-unavailable"}">
+      <span class="voc-pronunciation-label">Pronunciación aproximada · inglés americano</span>
+      <span class="voc-pronunciation-text">${text ? escapeHtml(text) : "No disponible ahora"}</span>
+    </div>
+  `;
 }
 
 function renderMyWordsStudyCard() {
@@ -1184,6 +1227,7 @@ function renderMyWordsStudyCard() {
           </svg>
         </button>
       </div>
+      ${renderMyWordPronunciation(it.pronunciation, true)}
       <div class="voc-meaning">${escapeHtml(it.meaning_es)}</div>
       <div class="voc-meaning-en">${escapeHtml(it.definition_en || "")}</div>
       <div class="gram-section-title">Examples</div>
@@ -1199,7 +1243,7 @@ function renderMyWordsStudyCard() {
     <button class="gram-cta" id="nextMyStudyBtn">${last ? "Empezar ejercicios →" : "Lo entendí →"}</button>
   `;
   els.mywordsBody.scrollTop = 0;
-  document.getElementById("playMyWordBtn").addEventListener("click", () => speakMyWord(it.display));
+   document.getElementById("playMyWordBtn").addEventListener("click", () => speakEnglish(it.display));
   document.getElementById("nextMyStudyBtn").addEventListener("click", () => {
     if (last) {
       state.mywordsExIdx = 0;
@@ -1289,6 +1333,7 @@ function showMyWordsFeedback(ex, isCorrect) {
     : `<em>${escapeHtml(ex.word)}</em> = ${escapeHtml(ex.correct)}.`;
   fb.innerHTML = `
     <strong>${head}.</strong> ${summary}
+    ${renderMyWordPronunciation(ex.pronunciation)}
     <span class="answer">${escapeHtml(ex.explanation || "")}</span>
     ${examples}
   `;
