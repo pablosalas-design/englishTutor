@@ -93,12 +93,12 @@ Pablo's own class vocabulary. Words are added via the Telegram bot and reviewed 
   - `POST /api/mywords/answer?mode=` body `{word_id, user_answer, exercise_type}` re-evaluates server-side (checks the word belongs to the caller's profile; for `word_write` normalizes vs `user_words.word`, for `meaning_mc` compares vs `meaning_es`) and updates the inline Leitner box. Same intervals as vocab (1/3/7/14/30 days).
   - `GET /api/mywords/list?mode=` → `{totals{total,due,new}, words[]}`; used for the subpicker card subtitle count.
 - DB table `user_words` (single table, inline Leitner): `id, chat_id, word` (normalized, `UNIQUE(chat_id, word)`), display, meaning_es, definition_en, pronunciation, examples jsonb, box, times_seen, times_correct, source, created_at, first_seen_at, last_seen_at, next_due_at`, index on `(chat_id, next_due_at)`. Created idempotently in BOTH `webapp.init_db_vocab()` and `bot.init_db()`; existing rows get `pronunciation` lazily on their first study/review session.
-- Frontend: subpicker card `actMyWords`, `#mywords` screen, `startMyWords`/`renderMyWords*` in app.js (mirror the vocab flow), `refreshMyWordsCount` updates the card subtitle from `/api/mywords/list` (called from `showScreen("subpicker")`). Study cards show the approximate written pronunciation alongside the audio button; exercise feedback shows it after answering. Phrasal verb study cards and exercises also include an English audio button. Reuses the vocab/grammar CSS classes.
+- Frontend: subpicker card `actMyWords`, `#mywords` screen, `startMyWords`/`renderMyWords*` in app.js (mirror the vocab flow), `refreshMyWordsCount` updates the card subtitle from `/api/mywords/list` (called from `showScreen("subpicker")`). Study cards show the approximate written pronunciation as a subtle line beneath the word, alongside the audio button; exercise feedback shows it after answering. Phrasal verb study cards and exercises also include an English audio button. Reuses the vocab/grammar CSS classes.
 
 #### Static assets cache
 
-Query string `?v=38` on `app.js` and `styles.css`; service worker cache is `tutor-shell-v35`. After deploying, do a hard refresh (or close/reopen the PWA) so the new SW activates. Bump both whenever frontend assets change.
-- On every app change, increment the visible version in the bottom-right corner (e.g. `v1.0.2` → `v1.0.3`) and bump the `app.js`/`styles.css` query versions plus the service-worker cache name.
+Query string `?v=39` on `app.js` and `styles.css`; service worker cache is `tutor-shell-v36`. After deploying, do a hard refresh (or close/reopen the PWA) so the new SW activates. Bump both whenever frontend assets change.
+- On every app change, increment the visible version in the bottom-right corner (e.g. `v1.0.3` → `v1.0.4`) and bump the `app.js`/`styles.css` query versions plus the service-worker cache name.
 
 The voice screen uses only the animated orb (`#orb`). The previous 3D avatar system (Ready Player Me / `.glb` model, three.js, `avatar.js`, `AVATAR_*` env vars) was fully removed.
 

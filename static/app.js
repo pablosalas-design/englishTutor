@@ -1197,7 +1197,6 @@ function renderMyWordPronunciation(pronunciation, showUnavailable = false) {
   if (!text && !showUnavailable) return "";
   return `
     <div class="voc-pronunciation${text ? "" : " is-unavailable"}">
-      <span class="voc-pronunciation-label">Pronunciación aproximada · inglés americano</span>
       <span class="voc-pronunciation-text">${text ? escapeHtml(text) : "No disponible ahora"}</span>
     </div>
   `;
