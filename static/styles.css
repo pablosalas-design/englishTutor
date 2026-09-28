@@ -524,6 +524,32 @@ html, body {
   font-size: 0.9rem;
   font-style: italic;
 }
+.voc-pronunciation {
+  display: grid;
+  gap: 0.18rem;
+  margin: 0.65rem 0 0.9rem;
+  padding: 0.65rem 0.8rem;
+  border-left: 3px solid var(--mc-color, var(--accent));
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+}
+.voc-pronunciation-label {
+  color: var(--text-dim);
+  font-size: 0.72rem;
+  letter-spacing: 0.045em;
+  text-transform: uppercase;
+}
+.voc-pronunciation-text {
+  font-size: 1.05rem;
+  font-weight: 700;
+  letter-spacing: 0.025em;
+  overflow-wrap: anywhere;
+}
+.voc-pronunciation.is-unavailable .voc-pronunciation-text {
+  color: var(--text-dim);
+  font-size: 0.9rem;
+  font-weight: 500;
+}
 .vocab-empty {
   text-align: center;
   padding: 3rem 1rem;

@@ -1160,6 +1160,17 @@ function speakMyWord(text) {
   window.speechSynthesis.speak(utterance);
 }
 
+function renderMyWordPronunciation(pronunciation, showUnavailable = false) {
+  const text = (pronunciation || "").trim();
+  if (!text && !showUnavailable) return "";
+  return `
+    <div class="voc-pronunciation${text ? "" : " is-unavailable"}">
+      <span class="voc-pronunciation-label">Pronunciación aproximada · inglés americano</span>
+      <span class="voc-pronunciation-text">${text ? escapeHtml(text) : "No disponible ahora"}</span>
+    </div>
+  `;
+}
+
 function renderMyWordsStudyCard() {
   const s = state.mywordsSession;
   const idx = state.mywordsStudyIdx;
@@ -1184,6 +1195,7 @@ function renderMyWordsStudyCard() {
           </svg>
         </button>
       </div>
+      ${renderMyWordPronunciation(it.pronunciation, true)}
       <div class="voc-meaning">${escapeHtml(it.meaning_es)}</div>
       <div class="voc-meaning-en">${escapeHtml(it.definition_en || "")}</div>
       <div class="gram-section-title">Examples</div>
@@ -1289,6 +1301,7 @@ function showMyWordsFeedback(ex, isCorrect) {
     : `<em>${escapeHtml(ex.word)}</em> = ${escapeHtml(ex.correct)}.`;
   fb.innerHTML = `
     <strong>${head}.</strong> ${summary}
+    ${renderMyWordPronunciation(ex.pronunciation)}
     <span class="answer">${escapeHtml(ex.explanation || "")}</span>
     ${examples}
   `;
