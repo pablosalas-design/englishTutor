@@ -520,6 +520,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "*Vocabulario:*\n"
         "• /add — añadir tus palabras o expresiones de clase a *Mis palabras* "
         "(una por línea). Las repasas luego en la app.\n\n"
+        "• /delete — eliminar palabras o expresiones de *Mis palabras* "
+        "(una por línea).\n\n"
         "*Otros ajustes:*\n"
         "• /level — ver o cambiar tu nivel y objetivo (ej. `/level B2 C1`).\n"
         "• /british o /american — cambiar el acento.\n"
@@ -750,7 +752,7 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # ----------------------------------------------------------------------------
-# "Mis palabras" — añadir vocabulario personal con /add
+# "Mis palabras" — añadir y eliminar vocabulario personal
 # ----------------------------------------------------------------------------
 
 # Debe coincidir con webapp.web_chat_id (puente bot <-> webapp por perfil).
@@ -788,6 +790,29 @@ def parse_add_words(text: str) -> list[str]:
             if piece:
                 raw_parts.append(piece)
     # Dedupe conservando orden, sin distinguir mayúsculas.
+    seen: set[str] = set()
+    out: list[str] = []
+    for p in raw_parts:
+        key = normalize_word(p)
+        if key and key not in seen:
+            seen.add(key)
+            out.append(p)
+        if len(out) >= ADD_MAX_WORDS:
+            break
+    return out
+
+
+def parse_delete_words(text: str) -> list[str]:
+    """Extrae palabras/expresiones del mensaje /delete."""
+    if not text:
+        return []
+    text = re.sub(r"^\s*/delete(@\w+)?\b", "", text, flags=re.IGNORECASE)
+    raw_parts: list[str] = []
+    for line in text.splitlines():
+        for piece in line.split(","):
+            piece = piece.strip(" \t-•*·")
+            if piece:
+                raw_parts.append(piece)
     seen: set[str] = set()
     out: list[str] = []
     for p in raw_parts:
@@ -907,6 +932,42 @@ def insert_user_words(chat_id: int, enriched: dict[str, dict]) -> int:
     return added
 
 
+def delete_user_words(chat_id: int, words: list[str]) -> tuple[list[str], list[str]]:
+    """Elimina palabras exactas por su forma normalizada y devuelve borradas/no encontradas."""
+    normalized = []
+    seen: set[str] = set()
+    for word in words:
+        key = normalize_word(word)
+        if key and key not in seen:
+            seen.add(key)
+            normalized.append(key)
+    if not normalized:
+        return [], []
+
+    placeholders = ", ".join(["%s"] * len(normalized))
+    with db_cursor() as cur:
+        cur.execute(
+            f"""
+            SELECT word, display
+            FROM user_words
+            WHERE chat_id = %s AND word IN ({placeholders})
+            """,
+            (chat_id, *normalized),
+        )
+        found = {row[0]: row[1] for row in cur.fetchall()}
+        cur.execute(
+            f"""
+            DELETE FROM user_words
+            WHERE chat_id = %s AND word IN ({placeholders})
+            """,
+            (chat_id, *normalized),
+        )
+
+    deleted = [found[key] for key in normalized if key in found]
+    missing = [original for original in words if normalize_word(original) not in found]
+    return deleted, missing
+
+
 async def add_words(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     config = get_chat_config(chat_id)
@@ -971,6 +1032,51 @@ async def add_words(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
 
 
+async def delete_words(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.effective_chat.id
+    config = get_chat_config(chat_id)
+    mode = config["mode"]
+    target_chat = web_chat_id(mode)
+    profile_label = MODES[mode]["label"]
+
+    words = parse_delete_words(update.message.text or "")
+    if not words:
+        await update.message.reply_text(
+            "Para eliminar vocabulario de *Mis palabras*, escribe `/delete` y luego "
+            "la palabra o expresión, una por línea (o separadas por comas). Por ejemplo:\n\n"
+            "`/delete breakthrough`\n"
+            "`/delete to look forward to`\n\n"
+            f"Se buscarán en el perfil activo (*{profile_label}*).",
+            parse_mode="Markdown",
+        )
+        return
+
+    try:
+        deleted, missing = delete_user_words(target_chat, words)
+    except Exception:
+        logging.exception("delete_words: fallo eliminando vocabulario")
+        await update.message.reply_text(
+            "Ups, tuve un problema eliminando esas palabras. ¿Lo intentamos otra vez?"
+        )
+        return
+
+    lines = []
+    if deleted:
+        lines.append(
+            f"🗑️ Eliminé *{len(deleted)}* palabra(s) de *Mis palabras* ({profile_label}):"
+        )
+        lines.append("\n".join(f"• {word}" for word in deleted))
+    else:
+        lines.append(
+            f"No encontré esas palabras en *Mis palabras* ({profile_label})."
+        )
+    if missing:
+        lines.append(
+            "\nNo encontradas:\n" + "\n".join(f"• {word}" for word in missing)
+        )
+    await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
+
+
 # ----------------------------------------------------------------------------
 # Bot setup
 # ----------------------------------------------------------------------------
@@ -990,6 +1096,7 @@ def main():
     app.add_handler(CommandHandler("leyre", leyre))
     app.add_handler(CommandHandler("status", status))
     app.add_handler(CommandHandler("add", add_words))
+    app.add_handler(CommandHandler("delete", delete_words))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
     app.add_handler(MessageHandler(filters.VOICE | filters.AUDIO, handle_voice))
 
