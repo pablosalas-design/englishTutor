@@ -954,7 +954,7 @@ def delete_user_words(chat_id: int, words: list[str]) -> tuple[list[str], list[s
             """,
             (chat_id, *normalized),
         )
-        found = {row[0]: row[1] for row in cur.fetchall()}
+        found = {row["word"]: row["display"] for row in cur.fetchall()}
         cur.execute(
             f"""
             DELETE FROM user_words
