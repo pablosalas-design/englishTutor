@@ -71,6 +71,7 @@ Flow: persona picker → activity picker (`Hablar` / `Gramática`) → voice scr
 #### Vocabulary feature (phrasal verbs + Leitner SRS)
 
 - `GET /api/vocab/today?mode={peace|lucia|leyre}` returns today's vocab session: `{level, mode, study, reviews_count, exercises, totals}`.
+  - `GET /api/vocab/summary?mode=` returns `{totals:{total,due}}` for the profile's level; used by the subpicker card and does not seed or generate vocabulary.
   - `study`: NEW phrasal verbs the user has never seen, capped at the per-mode plan (peace=5/day, kids=3/day). Approximate US-English pronunciation guides are generated on demand and saved on `phrasal_verbs`, so both newly seeded and existing phrasals can show the guide.
   - `exercises`: quiz built from the new ones + due reviews (max reviews per mode: peace=10, kids=6). Two exercise types are mixed: `meaning_mc` (choose the Spanish meaning) and `phrasal_write` (writing: a cloze English sentence + Spanish hint, user types the phrasal verb). Distractors are random meanings from other phrasal verbs at the same level.
   - Exercise count: peace targets `target_exercises`=15 per session (in `VOCAB_PLAN_BY_MODE`); when there aren't enough unique items, `build_vocab_exercises` builds both an MC and a write variant per phrasal and repeats to reach the target. Kids have no target → 1 exercise per item (new + due reviews).
@@ -93,12 +94,12 @@ Pablo's own class vocabulary. Words are added via the Telegram bot and reviewed 
   - `POST /api/mywords/answer?mode=` body `{word_id, user_answer, exercise_type}` re-evaluates server-side (checks the word belongs to the caller's profile; for `word_write` normalizes vs `user_words.word`, for `meaning_mc` compares vs `meaning_es`) and updates the inline Leitner box. Same intervals as vocab (1/3/7/14/30 days).
   - `GET /api/mywords/list?mode=` → `{totals{total,due,new}, words[]}`; used for the subpicker card subtitle count.
 - DB table `user_words` (single table, inline Leitner): `id, chat_id, word` (normalized, `UNIQUE(chat_id, word)`), display, meaning_es, definition_en, pronunciation, examples jsonb, box, times_seen, times_correct, source, created_at, first_seen_at, last_seen_at, next_due_at`, index on `(chat_id, next_due_at)`. Created idempotently in BOTH `webapp.init_db_vocab()` and `bot.init_db()`; existing rows get `pronunciation` lazily on their first study/review session.
-- Frontend: subpicker card `actMyWords`, `#mywords` screen, `startMyWords`/`renderMyWords*` in app.js (mirror the vocab flow), `refreshMyWordsCount` updates the card subtitle from `/api/mywords/list` (called from `showScreen("subpicker")`). Study cards show the approximate written pronunciation as a subtle line beneath the word, alongside the audio button; exercise feedback shows it after answering. Phrasal verb study cards and exercises also include an English audio button. Reuses the vocab/grammar CSS classes.
+- Frontend: subpicker card `actMyWords`, `#mywords` screen, `startMyWords`/`renderMyWords*` in app.js (mirror the vocab flow), `refreshMyWordsCount` updates the card subtitle from `/api/mywords/list` (called from `showScreen("subpicker")`). The `actVocab` card similarly reads `/api/vocab/summary` for the total phrasal verbs in the profile's level and due reviews. Study cards show the approximate written pronunciation as a subtle line beneath the word, alongside the audio button; exercise feedback shows it after answering. Phrasal verb study cards and exercises also include an English audio button. Reuses the vocab/grammar CSS classes.
 
 #### Static assets cache
 
-Query string `?v=41` on `app.js` and `styles.css`; service worker cache is `tutor-shell-v38`. After deploying, do a hard refresh (or close/reopen the PWA) so the new SW activates. Bump both whenever frontend assets change.
-- On every app change, increment the visible version in the bottom-right corner (e.g. `v1.0.5` → `v1.0.6`) and bump the `app.js`/`styles.css` query versions plus the service-worker cache name.
+Query string `?v=42` on `app.js` and `styles.css`; service worker cache is `tutor-shell-v39`. After deploying, do a hard refresh (or close/reopen the PWA) so the new SW activates. Bump both whenever frontend assets change.
+- On every app change, increment the visible version in the bottom-right corner (e.g. `v1.0.6` → `v1.0.7`) and bump the `app.js`/`styles.css` query versions plus the service-worker cache name.
 
 The voice screen uses only the animated orb (`#orb`). The previous 3D avatar system (Ready Player Me / `.glb` model, three.js, `avatar.js`, `AVATAR_*` env vars) was fully removed.
 

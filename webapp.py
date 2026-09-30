@@ -1395,6 +1395,27 @@ def fetch_new_for_user(chat_id: int, level: str, limit: int) -> list[dict]:
         return [dict(r) for r in cur.fetchall()]
 
 
+def count_phrasal_verbs(chat_id: int, level: str) -> dict:
+    """Cuenta el pool de phrasal verbs del nivel y los repasos vencidos del perfil."""
+    with db_cursor() as cur:
+        cur.execute(
+            """
+            SELECT
+              COUNT(DISTINCT pv.id) AS total,
+              COUNT(DISTINCT pp.phrasal_id) FILTER (
+                WHERE pp.times_seen > 0 AND pp.next_due_at <= NOW()
+              ) AS due
+            FROM phrasal_verbs pv
+            LEFT JOIN phrasal_progress pp
+              ON pp.phrasal_id = pv.id AND pp.chat_id = %s
+            WHERE pv.level = %s
+            """,
+            (chat_id, level),
+        )
+        row = cur.fetchone()
+        return {"total": int(row["total"]), "due": int(row["due"])}
+
+
 def _phrasal_pronunciation_key(value: object) -> str:
     return re.sub(r"\s+", " ", str(value or "").strip()).casefold()
 
@@ -2304,6 +2325,18 @@ class VocabAnswerItem(BaseModel):
     phrasal_id: int
     user_answer: str | None = None
     exercise_type: str | None = "meaning_mc"  # "meaning_mc" o "phrasal_write"
+
+
+@app.get("/api/vocab/summary")
+async def vocab_summary(mode: str):
+    """Resumen ligero para mostrar el total de phrasal verbs y repasos en el menú."""
+    if mode not in MODES:
+        raise HTTPException(status_code=400, detail="Modo desconocido")
+    try:
+        totals = count_phrasal_verbs(web_chat_id(mode), vocab_level_for(mode))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"No se pudo cargar el resumen: {e}")
+    return {"totals": totals}
 
 
 @app.get("/api/vocab/today")

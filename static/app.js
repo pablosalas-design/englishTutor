@@ -112,11 +112,11 @@ function initials(label) {
 
 // ---------- Sub-picker (Hablar / Gramática) ----------
 
-// Plan por perfil para mostrar números reales en las tarjetas (debe coincidir con el backend).
+// Número de ejercicios de gramática del plan de cada perfil.
 const SUBPICKER_COUNTS = {
-  peace:  { grammar: 15, vocabNew: 5, vocabRev: 10 },
-  lucia:  { grammar: 5,  vocabNew: 3, vocabRev: 6 },
-  leyre:  { grammar: 5,  vocabNew: 3, vocabRev: 6 },
+  peace:  { grammar: 15 },
+  lucia:  { grammar: 5 },
+  leyre:  { grammar: 5 },
 };
 
 function openSubpicker(mode) {
@@ -129,7 +129,7 @@ function openSubpicker(mode) {
   const gramSub = els.actGrammar.querySelector(".act-sub");
   if (gramSub) gramSub.textContent = `Lección del día + ${counts.grammar} ejercicios`;
   const vocabSub = els.actVocab.querySelector(".act-sub");
-  if (vocabSub) vocabSub.textContent = `${counts.vocabNew} phrasal verbs nuevos + repaso del día`;
+  if (vocabSub) vocabSub.textContent = "Cargando phrasal verbs…";
 
   showScreen("subpicker");
 }
@@ -163,6 +163,24 @@ async function refreshMyWordsCount(mode, sub) {
     }
   } catch {
     /* deja el texto por defecto si falla */
+  }
+}
+
+async function refreshVocabCount(mode, sub) {
+  if (!sub) return;
+  try {
+    const r = await fetch(`/api/vocab/summary?mode=${encodeURIComponent(mode.id)}`);
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const data = await r.json();
+    const t = data.totals;
+    if (state.mode && state.mode.id === mode.id &&
+        t && typeof t.total === "number" && typeof t.due === "number") {
+      sub.textContent = `${t.total} phrasal verb${t.total === 1 ? "" : "s"} · ${t.due} para repasar hoy`;
+    }
+  } catch {
+    if (state.mode && state.mode.id === mode.id) {
+      sub.textContent = "Resumen no disponible";
+    }
   }
 }
 
@@ -341,6 +359,7 @@ function showScreen(name) {
   document.getElementById(name).classList.add("active");
   if (name === "subpicker" && state.mode) {
     refreshProgressCount(state.mode, els.actProgress.querySelector(".act-sub"));
+    refreshVocabCount(state.mode, els.actVocab.querySelector(".act-sub"));
     refreshMyWordsCount(state.mode, els.actMyWords.querySelector(".act-sub"));
   }
 }
