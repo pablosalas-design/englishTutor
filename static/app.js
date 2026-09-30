@@ -856,6 +856,7 @@ function renderVocabStudyCard() {
         <div class="voc-phrasal">${escapeHtml(it.phrasal)}</div>
         ${renderEnglishAudioButton("playVocabBtn", it.phrasal, canSpeak)}
       </div>
+      ${renderPronunciationLine(it.pronunciation, true)}
       <div class="voc-meaning">${escapeHtml(it.meaning_es)}</div>
       <div class="voc-meaning-en">${escapeHtml(it.meaning_en || "")}</div>
       <div class="gram-section-title">Examples</div>
@@ -982,6 +983,7 @@ function showVocabFeedback(ex, isCorrect) {
     : `<em>${escapeHtml(ex.phrasal)}</em> = ${escapeHtml(ex.correct)}.`;
   fb.innerHTML = `
     <strong>${head}.</strong> ${summary}
+    ${renderPronunciationLine(ex.pronunciation, true)}
     <div class="vocab-feedback-audio">${renderEnglishAudioButton("playVocabFeedbackBtn", ex.phrasal, "speechSynthesis" in window && typeof SpeechSynthesisUtterance !== "undefined")}</div>
     <span class="answer">${escapeHtml(ex.explanation || "")}</span>
     ${examples}
@@ -1184,7 +1186,7 @@ function renderEnglishAudioButton(buttonId, text, canSpeak) {
   `;
 }
 
-function renderMyWordPronunciation(pronunciation, showUnavailable = false) {
+function renderPronunciationLine(pronunciation, showUnavailable = false) {
   const text = (pronunciation || "").trim();
   if (!text && !showUnavailable) return "";
   return `
@@ -1218,7 +1220,7 @@ function renderMyWordsStudyCard() {
           </svg>
         </button>
       </div>
-      ${renderMyWordPronunciation(it.pronunciation, true)}
+      ${renderPronunciationLine(it.pronunciation, true)}
       <div class="voc-meaning">${escapeHtml(it.meaning_es)}</div>
       <div class="voc-meaning-en">${escapeHtml(it.definition_en || "")}</div>
       <div class="gram-section-title">Examples</div>
@@ -1324,7 +1326,7 @@ function showMyWordsFeedback(ex, isCorrect) {
     : `<em>${escapeHtml(ex.word)}</em> = ${escapeHtml(ex.correct)}.`;
   fb.innerHTML = `
     <strong>${head}.</strong> ${summary}
-    ${renderMyWordPronunciation(ex.pronunciation)}
+    ${renderPronunciationLine(ex.pronunciation)}
     <span class="answer">${escapeHtml(ex.explanation || "")}</span>
     ${examples}
   `;

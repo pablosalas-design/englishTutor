@@ -71,7 +71,7 @@ Flow: persona picker → activity picker (`Hablar` / `Gramática`) → voice scr
 #### Vocabulary feature (phrasal verbs + Leitner SRS)
 
 - `GET /api/vocab/today?mode={peace|lucia|leyre}` returns today's vocab session: `{level, mode, study, reviews_count, exercises, totals}`.
-  - `study`: NEW phrasal verbs the user has never seen, capped at the per-mode plan (peace=5/day, kids=3/day).
+  - `study`: NEW phrasal verbs the user has never seen, capped at the per-mode plan (peace=5/day, kids=3/day). Approximate US-English pronunciation guides are generated on demand and saved on `phrasal_verbs`, so both newly seeded and existing phrasals can show the guide.
   - `exercises`: quiz built from the new ones + due reviews (max reviews per mode: peace=10, kids=6). Two exercise types are mixed: `meaning_mc` (choose the Spanish meaning) and `phrasal_write` (writing: a cloze English sentence + Spanish hint, user types the phrasal verb). Distractors are random meanings from other phrasal verbs at the same level.
   - Exercise count: peace targets `target_exercises`=15 per session (in `VOCAB_PLAN_BY_MODE`); when there aren't enough unique items, `build_vocab_exercises` builds both an MC and a write variant per phrasal and repeats to reach the target. Kids have no target → 1 exercise per item (new + due reviews).
   - `phrasal_write` answers are checked server-side with `normalize_phrasal_text` (lowercase, strip punctuation, collapse spaces) against `phrasal_verbs.phrasal`. The cloze is built by `make_cloze_for_phrasal` (handles common verb forms: -s/-ed/-ing/-ies); if no form is found in any example, that phrasal falls back to MC.
@@ -81,7 +81,7 @@ Flow: persona picker → activity picker (`Hablar` / `Gramática`) → voice scr
   - On first `/api/vocab/today` for an unseen level, generates a `VOCAB_SEED_BATCH` (=40) using `gpt-4o-mini` with structured JSON output. ~30s, costs cents.
   - When the user has fewer than `VOCAB_REFILL_THRESHOLD` (=8) unseen items left for their level, generates another `VOCAB_REFILL_BATCH` (=20). Existing phrasals are sent in the prompt's exclude list to avoid duplicates.
   - Generation is idempotent thanks to `UNIQUE(level, phrasal)`.
-- DB tables: `phrasal_verbs` (level + phrasal verb + Spanish meaning + English definition + 2 examples) and `phrasal_progress` (per chat_id: box, times_seen, times_correct, last_seen_at, next_due_at).
+- DB tables: `phrasal_verbs` (level + phrasal verb + Spanish meaning + English definition + pronunciation + 2 examples) and `phrasal_progress` (per chat_id: box, times_seen, times_correct, last_seen_at, next_due_at).
 
 #### "Mis palabras" feature (personal vocab fed from Telegram)
 
@@ -97,8 +97,8 @@ Pablo's own class vocabulary. Words are added via the Telegram bot and reviewed 
 
 #### Static assets cache
 
-Query string `?v=40` on `app.js` and `styles.css`; service worker cache is `tutor-shell-v37`. After deploying, do a hard refresh (or close/reopen the PWA) so the new SW activates. Bump both whenever frontend assets change.
-- On every app change, increment the visible version in the bottom-right corner (e.g. `v1.0.4` → `v1.0.5`) and bump the `app.js`/`styles.css` query versions plus the service-worker cache name.
+Query string `?v=41` on `app.js` and `styles.css`; service worker cache is `tutor-shell-v38`. After deploying, do a hard refresh (or close/reopen the PWA) so the new SW activates. Bump both whenever frontend assets change.
+- On every app change, increment the visible version in the bottom-right corner (e.g. `v1.0.5` → `v1.0.6`) and bump the `app.js`/`styles.css` query versions plus the service-worker cache name.
 
 The voice screen uses only the animated orb (`#orb`). The previous 3D avatar system (Ready Player Me / `.glb` model, three.js, `avatar.js`, `AVATAR_*` env vars) was fully removed.
 
