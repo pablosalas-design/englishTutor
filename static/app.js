@@ -827,10 +827,6 @@ function renderVocabIntro() {
   els.vocabBody.innerHTML = `
     <div class="gram-meta">${s.level} · ${t.new} ${t.new === 1 ? "nuevo" : "nuevos"} · ${t.reviews} ${t.reviews === 1 ? "repaso" : "repasos"}</div>
     <h3 class="gram-title">Phrasal verbs de hoy</h3>
-    <div class="gram-explanation">
-      Primero veremos los phrasal verbs nuevos del día con sus ejemplos.
-      Después los pondremos a prueba mezclando los nuevos con los repasos pendientes.
-    </div>
     <button class="gram-cta" id="startVocabBtn">${t.new > 0 ? "Empezar a estudiar →" : "Ir a los ejercicios →"}</button>
   `;
   els.vocabBody.scrollTop = 0;
@@ -1142,10 +1138,6 @@ function renderMyWordsIntro() {
   els.mywordsBody.innerHTML = `
     <div class="gram-meta">${t.all} en total · ${t.new} ${t.new === 1 ? "nueva" : "nuevas"} · ${t.reviews} ${t.reviews === 1 ? "repaso" : "repasos"}</div>
     <h3 class="gram-title">Mis palabras de hoy</h3>
-    <div class="gram-explanation">
-      Primero veremos las palabras nuevas con sus ejemplos.
-      Después las pondremos a prueba mezclando las nuevas con los repasos pendientes.
-    </div>
     <button class="gram-cta" id="startMyWordsBtn">${t.new > 0 ? "Empezar a estudiar →" : "Ir a los ejercicios →"}</button>
   `;
   els.mywordsBody.scrollTop = 0;
