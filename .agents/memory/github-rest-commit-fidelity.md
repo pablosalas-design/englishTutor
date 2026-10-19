@@ -14,3 +14,9 @@ In this workspace, the Git remote may reject direct HTTPS pushes even when the G
 **Why:** Replit's connected GitHub authorization is available to the integration proxy, not necessarily to the shell's Git credential helper.
 
 **How to apply:** Treat a successful REST ref update as the GitHub publish result, then verify the remote branch SHA and the downstream deploy trigger separately.
+
+Do not trust `origin/main` alone when deciding that a publish is a fast-forward. Fetch the live branch and compare its ancestry before updating it.
+
+**Why:** A stale remote-tracking ref can hide previously published REST commits with different history, even when their fixes are already present locally.
+
+**How to apply:** If histories diverge, review the remote changes and preserve both histories with a merge; never force-update the remote to bypass the mismatch.
