@@ -880,12 +880,7 @@ function renderVocabStudyCard() {
       <div class="voc-meaning-en">${escapeHtml(it.meaning_en || "")}</div>
       <div class="gram-section-title">Examples</div>
       <div class="gram-examples">
-        ${(it.examples || []).map(ex => `
-          <div class="gram-example">
-            <div class="en">${escapeHtml(ex.en)}</div>
-            <div class="es">${escapeHtml(ex.es || "")}</div>
-          </div>
-        `).join("")}
+        ${(it.examples || []).map(renderExampleWithAudio).join("")}
       </div>
     </div>
     <button class="gram-cta" id="nextStudyBtn">${last ? "Empezar ejercicios →" : "Lo entendí →"}</button>
@@ -991,12 +986,7 @@ function showVocabFeedback(ex, isCorrect) {
   const fb = document.getElementById("feedback");
   fb.className = `gram-feedback ${isCorrect ? "correct" : "wrong"}`;
   const head = isCorrect ? "✓ Correct" : "✗ Not quite";
-  const examples = (ex.examples || []).slice(0, 2).map(e => `
-    <div class="gram-example" style="margin-top: 0.5rem;">
-      <div class="en">${escapeHtml(e.en)}</div>
-      <div class="es">${escapeHtml(e.es || "")}</div>
-    </div>
-  `).join("");
+  const examples = (ex.examples || []).slice(0, 2).map(renderExampleWithAudio).join("");
   const summary = ex.type === "phrasal_write"
     ? `<em>${escapeHtml(ex.phrasal)}</em> = ${escapeHtml(ex.hint_es || "")}.`
     : `<em>${escapeHtml(ex.phrasal)}</em> = ${escapeHtml(ex.correct)}.`;
@@ -1192,7 +1182,7 @@ function speakEnglish(text) {
 
 function renderEnglishAudioButton(buttonId, text, canSpeak) {
   return `
-    <button class="voc-speak-btn" id="${buttonId}" type="button"
+    <button class="voc-speak-btn" ${buttonId ? `id="${buttonId}"` : ""} type="button"
             aria-label="Escuchar ${escapeHtml(text)}"
             title="${canSpeak ? "Escuchar pronunciación" : "Audio no disponible en este navegador"}"
             ${canSpeak ? "" : "disabled"}>
@@ -1203,6 +1193,31 @@ function renderEnglishAudioButton(buttonId, text, canSpeak) {
       </svg>
     </button>
   `;
+}
+
+function renderExampleWithAudio(example) {
+  const text = String(example.en || "").trim();
+  const canSpeak = !!text && "speechSynthesis" in window && typeof SpeechSynthesisUtterance !== "undefined";
+  return `
+    <div class="gram-example voc-example">
+      <div class="voc-example-copy">
+        <div class="en">${escapeHtml(text)}</div>
+        <div class="es">${escapeHtml(example.es || "")}</div>
+      </div>
+      <span class="example-audio" data-speech="${escapeHtml(text)}">
+        ${renderEnglishAudioButton("", text, canSpeak)}
+      </span>
+    </div>`;
+}
+
+// Delegación: también funciona al cambiar de tarjeta o mostrar la corrección.
+for (const body of [els.vocabBody, els.mywordsBody]) {
+  body.addEventListener("click", (event) => {
+    const button = event.target.closest(".example-audio .voc-speak-btn");
+    if (button && !button.disabled && body.contains(button)) {
+      speakEnglish(button.closest(".example-audio").dataset.speech);
+    }
+  });
 }
 
 function renderPronunciationLine(pronunciation, showUnavailable = false) {
@@ -1244,12 +1259,7 @@ function renderMyWordsStudyCard() {
       <div class="voc-meaning-en">${escapeHtml(it.definition_en || "")}</div>
       <div class="gram-section-title">Examples</div>
       <div class="gram-examples">
-        ${(it.examples || []).map(ex => `
-          <div class="gram-example">
-            <div class="en">${escapeHtml(ex.en)}</div>
-            <div class="es">${escapeHtml(ex.es || "")}</div>
-          </div>
-        `).join("")}
+        ${(it.examples || []).map(renderExampleWithAudio).join("")}
       </div>
     </div>
     <button class="gram-cta" id="nextMyStudyBtn">${last ? "Empezar ejercicios →" : "Lo entendí →"}</button>
@@ -1334,12 +1344,7 @@ function showMyWordsFeedback(ex, isCorrect) {
   const fb = document.getElementById("feedback");
   fb.className = `gram-feedback ${isCorrect ? "correct" : "wrong"}`;
   const head = isCorrect ? "✓ Correct" : "✗ Not quite";
-  const examples = (ex.examples || []).slice(0, 2).map(e => `
-    <div class="gram-example" style="margin-top: 0.5rem;">
-      <div class="en">${escapeHtml(e.en)}</div>
-      <div class="es">${escapeHtml(e.es || "")}</div>
-    </div>
-  `).join("");
+  const examples = (ex.examples || []).slice(0, 2).map(renderExampleWithAudio).join("");
   const summary = ex.type === "word_write"
     ? `<em>${escapeHtml(ex.correct)}</em> = ${escapeHtml(ex.hint_es || "")}.`
     : `<em>${escapeHtml(ex.word)}</em> = ${escapeHtml(ex.correct)}.`;
